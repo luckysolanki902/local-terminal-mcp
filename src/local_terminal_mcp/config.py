@@ -138,6 +138,7 @@ def load_config() -> ServerConfig:
         allow_write=_env_bool("ALLOW_WRITE", False),
         max_output_bytes=_env_int("MAX_OUTPUT_BYTES", 100_000),
         timeout_seconds=_env_int("TIMEOUT", 120),
+        contain_path_args=_env_bool("CONTAIN_PATH_ARGS", True),
     )
     return ServerConfig(
         policy=policy,

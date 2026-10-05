@@ -41,14 +41,14 @@ def test_unknown_command_is_denied(policy: Policy) -> None:
         policy.parse_command("python evil.py")
 
 
-def test_absolute_path_to_denied_binary_is_denied(policy: Policy) -> None:
-    # basename is checked, so /bin/rm is rejected just like rm.
-    with pytest.raises(PolicyError, match="not on the allowlist"):
+def test_absolute_path_program_is_denied(policy: Policy) -> None:
+    # An absolute-path program is rejected: programs must be bare names.
+    with pytest.raises(PolicyError, match="bare name"):
         policy.parse_command("/bin/rm file")
 
 
-def test_relative_path_program_uses_basename(policy: Policy) -> None:
-    with pytest.raises(PolicyError, match="not on the allowlist"):
+def test_relative_path_program_is_denied(policy: Policy) -> None:
+    with pytest.raises(PolicyError, match="bare name"):
         policy.parse_command("./deploy.sh")
 
 

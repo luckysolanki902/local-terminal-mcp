@@ -8,6 +8,9 @@ why a request was refused and adjust.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from mcp.server.mcpserver import MCPServer
 
 from . import __version__, executor
@@ -19,7 +22,8 @@ from .approvals import (
     TTYApprover,
 )
 from .config import ServerConfig
-from .policy import PolicyError
+from .policy import Policy, PolicyError
+from .sessions import SessionManager
 
 
 def build_store(config: ServerConfig) -> DynamicAllowlist | None:
@@ -46,25 +50,96 @@ def build_server(config: ServerConfig) -> MCPServer:
 
     store = build_store(config)
     approver = build_approver(config) if config.approval_mode != "none" else None
+    sessions = SessionManager(policy.root)
 
-    allowed = ", ".join(sorted(policy.allowed_commands))
+    allowed = ", ".join(sorted(str(p) for p in policy.allowed_commands))
+
+    def _rel(path: Path) -> str:
+        try:
+            rel = path.relative_to(policy.root)
+        except ValueError:
+            return str(path)
+        return str(rel) if str(rel) != "." else "."
+
+    def _run(policy: Policy, command: str, base: Path) -> str:
+        return executor.run_command(
+            policy, command, cwd=str(base), store=store, approver=approver
+        )
 
     @mcp.tool(
         description=(
-            "Run a single allowlisted command inside the project root and "
-            "return its output. Exactly one program per call: pipes, chaining "
-            "(&&, ;), redirects (>) and command substitution are not allowed. "
-            f"Allowed programs: {allowed}. Optionally set 'cwd' to a "
-            "subdirectory of the root."
+            "Run a single allowlisted command and return its output. Exactly "
+            "one program per call: pipes, chaining (&&, ;), redirects (>) and "
+            "command substitution are not allowed. Use 'cd <dir>' to change the "
+            "session's working directory (it persists across calls, so you need "
+            "not repeat it); 'pwd' shows it. Pass 'session' to target a specific "
+            "terminal opened with open_terminal (default: a shared session). "
+            f"Allowed: {allowed}."
         )
     )
-    def run_command(command: str, cwd: str = "") -> str:
+    def run_command(command: str, session: str = "", cwd: str = "") -> str:
         try:
-            return executor.run_command(
-                policy, command, cwd, store=store, approver=approver
-            )
+            sess = sessions.get(session or None)
+        except KeyError:
+            return f"refused: unknown session {session!r} (open one first)"
+        try:
+            argv = policy.parse_structure(command)
         except PolicyError as exc:
             return f"refused: {exc}"
+
+        program = os.path.basename(argv[0])
+        if program == "cd":
+            target = argv[1] if len(argv) > 1 else ""
+            try:
+                new_cwd = policy.resolve_within(sess.cwd, target)
+            except PolicyError as exc:
+                return f"refused: {exc}"
+            if not new_cwd.is_dir():
+                return f"refused: {target!r} is not a directory"
+            sessions.set_cwd(sess.id, new_cwd)
+            return f"cwd: {_rel(new_cwd)}"
+        if program == "pwd":
+            return _rel(sess.cwd)
+
+        base = sess.cwd
+        if cwd:
+            try:
+                base = policy.resolve_within(sess.cwd, cwd)
+            except PolicyError as exc:
+                return f"refused: {exc}"
+        try:
+            return _run(policy, command, base)
+        except PolicyError as exc:
+            return f"refused: {exc}"
+
+    @mcp.tool(
+        description=(
+            "Open a new terminal session with its own persistent working "
+            "directory (starts at the project root). Returns the session id to "
+            "pass to run_command."
+        )
+    )
+    def open_terminal(name: str = "") -> str:
+        try:
+            sess = sessions.open(name)
+        except RuntimeError as exc:
+            return f"refused: {exc}"
+        return f"opened session '{sess.id}' (name: {sess.name}, cwd: {_rel(sess.cwd)})"
+
+    @mcp.tool(description="List open terminal sessions and their directories.")
+    def list_terminals() -> str:
+        lines = [
+            f"{s.id}  name={s.name}  cwd={_rel(s.cwd)}" for s in sessions.list()
+        ]
+        return "\n".join(lines) if lines else "(no sessions yet)"
+
+    @mcp.tool(description="Close a terminal session by id.")
+    def close_terminal(session: str) -> str:
+        return (
+            f"closed {session}"
+            if sessions.close(session)
+            else f"no such session {session!r}"
+        )
 
     @mcp.tool(description="Read a UTF-8 text file located inside the project root.")
     def read_file(path: str) -> str:

@@ -27,6 +27,8 @@ import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
+from .matching import PatternError, matches_any, parse_patterns, path_escape_reason
+
 # Tokens that indicate shell control flow / redirection. Their mere presence
 # in a command is grounds for rejection: we never run a shell, so they can only
 # be an attempt to smuggle a second action past the allowlist.
@@ -76,11 +78,18 @@ class Policy:
     allow_write: bool = False
     max_output_bytes: int = 100_000
     timeout_seconds: int = 120
+    contain_path_args: bool = True
 
     def __post_init__(self) -> None:
         # Resolve the root once so later comparisons are against a canonical,
         # symlink-free absolute path.
         object.__setattr__(self, "root", Path(self.root).expanduser().resolve())
+        # Parse the allowlist entries into validated patterns once.
+        try:
+            patterns = parse_patterns(self.allowed_commands)
+        except PatternError as exc:
+            raise PolicyError(f"invalid allowlist entry: {exc}") from None
+        object.__setattr__(self, "patterns", patterns)
 
     # -- command handling --------------------------------------------------
 
@@ -126,19 +135,32 @@ class Policy:
         """The program name (basename) that ``argv`` would execute."""
         return os.path.basename(argv[0])
 
-    def is_allowed_program(self, program: str) -> bool:
-        """Whether ``program`` is on the static (configured) allowlist."""
-        return program in self.allowed_commands
+    def is_allowed(self, argv: list[str]) -> bool:
+        """Whether ``argv`` matches the static (configured) allowlist patterns."""
+        return matches_any(self.patterns, argv)
+
+    def check_path_args(self, argv: list[str]) -> None:
+        """Raise if an argument would leave the root (when containment is on)."""
+        if not self.contain_path_args:
+            return
+        reason = path_escape_reason(argv)
+        if reason is not None:
+            raise PolicyError(reason)
 
     def parse_command(self, command: str) -> list[str]:
         """Validate ``command`` and return its argv for shell-free execution.
 
         Raises :class:`PolicyError` if the command is empty, contains shell
-        operators or substitution, or if its program is not on the allowlist.
+        operators or substitution, or if its program/arguments are not allowed.
         """
         tokens = self.parse_structure(command)
-        program = self.program_of(tokens)
-        if not self.is_allowed_program(program):
+        if "/" in tokens[0]:
+            raise PolicyError(
+                f"program {tokens[0]!r} must be a bare name, not a path"
+            )
+        self.check_path_args(tokens)
+        if not self.is_allowed(tokens):
+            program = self.program_of(tokens)
             raise PolicyError(f"command {program!r} is not on the allowlist")
         return tokens
 
@@ -160,6 +182,20 @@ class Policy:
             raise PolicyError(
                 f"path {str(path)!r} resolves outside the allowed root"
             )
+        return resolved
+
+    def resolve_within(self, base: Path, path: str) -> Path:
+        """Resolve ``path`` relative to ``base`` and keep it inside the root.
+
+        Used for a session ``cd``: the target is relative to the session's
+        current directory, not the root.
+        """
+        candidate = Path(path) if path else base
+        if not candidate.is_absolute():
+            candidate = base / candidate
+        resolved = candidate.expanduser().resolve()
+        if resolved != self.root and self.root not in resolved.parents:
+            raise PolicyError(f"path {path!r} resolves outside the allowed root")
         return resolved
 
     def require_write(self) -> None:

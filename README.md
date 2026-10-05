@@ -306,7 +306,8 @@ flags win over environment variables.
 | `--auth-token` | `LTMCP_AUTH_TOKEN` | — | Bearer token (required for `bearer` mode) |
 | `--mcp-path` | `LTMCP_MCP_PATH` | `/mcp` | Path the MCP endpoint is served at; for `path` auth, end it with a long random segment |
 | `--allowed-hosts` | `LTMCP_ALLOWED_HOSTS` | any | Comma-separated `Host` header allowlist (e.g. your tunnel hostname) |
-| `--allow-commands` | `LTMCP_ALLOW_COMMANDS` | read-only set | Comma-separated static allowlist |
+| `--allow-commands` | `LTMCP_ALLOW_COMMANDS` | read-only set | Comma-separated allowlist patterns (e.g. `git *,rg *`) |
+| `--no-contain-path-args` | `LTMCP_CONTAIN_PATH_ARGS=false` | on | Stop confining command path-args to the root |
 | `--approval` | `LTMCP_APPROVAL_MODE` | `none` | Ask before running non-allowlisted commands: `none`/`tty`/`file` |
 | `--approvals-dir` | `LTMCP_APPROVALS_DIR` | — | Directory to coordinate approvals in `file` mode |
 | `--approval-timeout` | `LTMCP_APPROVAL_TIMEOUT` | `60` | Seconds to wait for a decision |
@@ -319,10 +320,35 @@ flags win over environment variables.
 
 | Tool | Available when | Description |
 |---|---|---|
-| `run_command` | always | Run one allowlisted command (no shell). |
+| `run_command` | always | Run one allowlisted command (no shell). `cd` persists per session; takes an optional `session`. |
 | `read_file` | always | Read a file inside the root. |
 | `list_directory` | always | List a directory inside the root. |
+| `open_terminal` | always | Open a session with its own persistent working directory. |
+| `list_terminals` | always | List open sessions and their directories. |
+| `close_terminal` | always | Close a session. |
 | `write_file` | `--allow-write` | Write a file inside the root. |
+
+### Sessions (persistent working directory)
+
+You don't need to prefix every call with `cd …`. Run `cd <dir>` once and it
+**persists** for later calls — there's a shared default session, and you can
+`open_terminal` for additional named sessions (pass the returned id as
+`session`). This is *not* a real shell: commands still run one-at-a-time with
+`shell=False` and the allowlist, so `cd src && rm -rf .` is still rejected —
+you just `cd src` once, then run commands.
+
+### Allowlist patterns
+
+`--allow-commands` entries are glob patterns over the command's argv:
+
+- `git` or `git *` — `git` with any arguments.
+- `git log *` — only `git log …`.
+- `rg *`, `cat *`, etc.
+
+A program-position wildcard (`*`) and absolute-path programs (`/bin/rm`) are
+**rejected**. With path containment on (default), arguments that are absolute,
+`~`, or use `..` are refused — so `cat /etc/passwd` stays blocked even under
+`cat *`. Disable with `--no-contain-path-args`.
 
 ## Approvals & the dynamic allowlist (Claude Code–style)
 

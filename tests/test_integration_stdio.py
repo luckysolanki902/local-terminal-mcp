@@ -49,6 +49,43 @@ async def test_stdio_roundtrip(tmp_path: Path) -> None:
             assert "refused" in _text(refused)
 
 
+async def test_stdio_session_cd_persists(tmp_path: Path) -> None:
+    """Open a terminal, cd into a subdir, and have it persist across calls."""
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "marker.txt").write_text("x")
+
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "local_terminal_mcp", "--root", str(tmp_path)],
+    )
+
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+
+            tools = {t.name for t in (await session.list_tools()).tools}
+            assert {"open_terminal", "list_terminals", "close_terminal"} <= tools
+
+            opened = _text(await session.call_tool("open_terminal", {}))
+            sid = opened.split("'")[1]  # opened session '<id>' ...
+
+            cd = await session.call_tool(
+                "run_command", {"command": "cd sub", "session": sid}
+            )
+            assert "cwd: sub" in _text(cd)
+
+            # A later command runs in the session's directory without re-cd'ing.
+            ls = await session.call_tool(
+                "run_command", {"command": "ls", "session": sid}
+            )
+            assert "marker.txt" in _text(ls)
+
+            pwd = await session.call_tool(
+                "run_command", {"command": "pwd", "session": sid}
+            )
+            assert "sub" in _text(pwd)
+
+
 async def test_stdio_approval_always_persists(tmp_path: Path) -> None:
     """A non-allowlisted command is approved 'always' and persisted to JSON."""
     root = tmp_path / "root"

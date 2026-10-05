@@ -65,6 +65,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Enable the write_file tool (default: disabled).",
     )
+    parser.add_argument(
+        "--no-contain-path-args",
+        dest="contain_path_args",
+        action="store_false",
+        default=None,
+        help=(
+            "Disable confining command path-arguments to the root (by default, "
+            "arguments that are absolute, ~, or use .. are rejected)."
+        ),
+    )
     parser.add_argument("--max-output-bytes", type=int, help="Output truncation limit.")
     parser.add_argument("--timeout", type=int, help="Per-command timeout in seconds.")
     parser.add_argument(
@@ -107,12 +117,18 @@ def _apply_overrides(args: argparse.Namespace):
         if args.allow_commands
         else policy.allowed_commands
     )
+    contain = (
+        policy.contain_path_args
+        if args.contain_path_args is None
+        else args.contain_path_args
+    )
     config.policy = Policy(
         root=new_root,
         allowed_commands=allowed,
         allow_write=policy.allow_write or args.allow_write,
         max_output_bytes=args.max_output_bytes or policy.max_output_bytes,
         timeout_seconds=args.timeout or policy.timeout_seconds,
+        contain_path_args=contain,
     )
     if args.transport:
         config.transport = args.transport

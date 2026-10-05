@@ -31,8 +31,15 @@ def _authorize(
     approver: Approver | None,
 ) -> None:
     """Decide whether ``argv`` may run, asking the approver if needed."""
+    if "/" in argv[0]:
+        raise PolicyError(
+            f"program {argv[0]!r} must be a bare name, not a path"
+        )
+    # Path containment applies regardless of how the program is authorized.
+    policy.check_path_args(argv)
+
     program = policy.program_of(argv)
-    if policy.is_allowed_program(program):
+    if policy.is_allowed(argv):
         return
     if store is not None and store.contains(program):
         return
