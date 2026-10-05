@@ -43,6 +43,34 @@ machine, and let it analyse the code conversationally. That is what this server
 provides, with a security model strong enough that you can leave write access
 turned off and expose only read access.
 
+## What you can do with it
+
+- **Work on your codebase from ChatGPT without spending Codex/API tokens.**
+  Let ChatGPT run `git`, `rg`, `cat`, `find`, etc. to read, search and reason
+  about a local repo — billed to your flat ChatGPT subscription instead of
+  metered agent/API usage.
+- **Run local generators from ChatGPT — images, sprites, assets — unmetered.**
+  The server runs *any program you allowlist*. Allowlist your own generation
+  CLI or script and ChatGPT can trigger it locally, as many times as you like,
+  without using ChatGPT's built-in image quota. For example, to let ChatGPT
+  drive a local sprite/image script:
+
+  ```bash
+  local-terminal-mcp --transport http --port 3003 \
+    --root /path/to/assets-project \
+    --auth path --mcp-path "/mcp/$SECRET" \
+    --allow-commands "python,node,convert,aseprite" \
+    --allow-write
+  ```
+
+  Then ask ChatGPT to call `run_command` with e.g.
+  `python gen_sprite.py --seed 42 --out sprites/hero.png`, and `read_file` /
+  `list_directory` to inspect the results. (`--allow-write` is only needed if
+  the generator writes into the root; keep it off for read-only analysis.)
+
+> You decide exactly which programs are reachable. The default allowlist is
+> read-only; everything beyond it is opt-in.
+
 ## How it works
 
 ```
