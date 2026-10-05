@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Image, MCPServer
 
 from . import __version__, executor
 from .allowlist import DynamicAllowlist
@@ -157,6 +157,20 @@ def build_server(config: ServerConfig) -> MCPServer:
         except PolicyError as exc:
             return f"refused: {exc}"
 
+    @mcp.tool(
+        description=(
+            "Read an image file (png/jpg/gif/webp/bmp) inside the project root "
+            "and return it as an image so you can actually see it."
+        ),
+        structured_output=False,
+    )
+    def read_image(path: str):
+        try:
+            target = executor.resolve_image(policy, path)
+        except PolicyError as exc:
+            return f"refused: {exc}"
+        return Image(path=str(target))
+
     if policy.allow_write:
 
         @mcp.tool(
@@ -169,6 +183,41 @@ def build_server(config: ServerConfig) -> MCPServer:
         def write_file(path: str, content: str) -> str:
             try:
                 return executor.write_file(policy, path, content)
+            except PolicyError as exc:
+                return f"refused: {exc}"
+
+        @mcp.tool(
+            description=(
+                "Write a BINARY file (e.g. a PNG) inside the project root from "
+                "base64 content (a plain base64 string or a data: URL). Use this "
+                "to save generated images and other non-text assets."
+            )
+        )
+        def write_file_base64(path: str, data_base64: str) -> str:
+            try:
+                return executor.write_file_base64(policy, path, data_base64)
+            except PolicyError as exc:
+                return f"refused: {exc}"
+
+    if config.image_gen_cmd:
+
+        @mcp.tool(
+            description=(
+                "Generate an image from a text prompt using the local image "
+                "generator and save it to the given path inside the project root. "
+                "Unlimited and local: the image is created on this machine. Then "
+                "use read_image to view the result."
+            )
+        )
+        def generate_image(prompt: str, output: str) -> str:
+            try:
+                return executor.generate_image(
+                    policy,
+                    prompt,
+                    output,
+                    config.image_gen_cmd,
+                    config.image_timeout,
+                )
             except PolicyError as exc:
                 return f"refused: {exc}"
 

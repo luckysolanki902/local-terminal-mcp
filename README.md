@@ -312,7 +312,9 @@ flags win over environment variables.
 | `--approvals-dir` | `LTMCP_APPROVALS_DIR` | — | Directory to coordinate approvals in `file` mode |
 | `--approval-timeout` | `LTMCP_APPROVAL_TIMEOUT` | `60` | Seconds to wait for a decision |
 | `--allowlist-file` | `LTMCP_ALLOWLIST_FILE` | — | JSON file that "always allow" appends to |
-| `--allow-write` | `LTMCP_ALLOW_WRITE` | `false` | Enable `write_file` |
+| `--image-gen-cmd` | `LTMCP_IMAGE_GEN_CMD` | — | Local image generator template (`{prompt}`/`{output}`); enables `generate_image` |
+| `--image-timeout` | `LTMCP_IMAGE_TIMEOUT` | `300` | Image generation timeout (seconds) |
+| `--allow-write` | `LTMCP_ALLOW_WRITE` | `false` | Enable `write_file`, `write_file_base64`, `generate_image` |
 | `--max-output-bytes` | `LTMCP_MAX_OUTPUT_BYTES` | `100000` | Output truncation limit |
 | `--timeout` | `LTMCP_TIMEOUT` | `120` | Per-command timeout (seconds) |
 
@@ -321,12 +323,27 @@ flags win over environment variables.
 | Tool | Available when | Description |
 |---|---|---|
 | `run_command` | always | Run one allowlisted command (no shell). `cd` persists per session; takes an optional `session`. |
-| `read_file` | always | Read a file inside the root. |
+| `read_file` | always | Read a text file inside the root. |
+| `read_image` | always | Read an image (png/jpg/gif/webp/bmp) and return it **as an image** the model can see. |
 | `list_directory` | always | List a directory inside the root. |
 | `open_terminal` | always | Open a session with its own persistent working directory. |
 | `list_terminals` | always | List open sessions and their directories. |
 | `close_terminal` | always | Close a session. |
-| `write_file` | `--allow-write` | Write a file inside the root. |
+| `write_file` | `--allow-write` | Write a UTF-8 text file inside the root. |
+| `write_file_base64` | `--allow-write` | Write a **binary** file (e.g. a PNG) from base64 — for saving generated images and other assets. |
+| `generate_image` | `--image-gen-cmd` | Generate an image from a prompt using a **local** generator, saved into the root. |
+
+### Images
+
+`write_file` only carries UTF-8 text, so binary assets (PNGs) use
+`write_file_base64` (plain base64 or a `data:` URL). `read_image` returns the
+file as an MCP image block, so the assistant actually *sees* it rather than
+getting base64 text. To generate images locally (free, unlimited, on your
+machine), point `--image-gen-cmd` at a local generator with `{prompt}` and
+`{output}` placeholders — e.g. `sd -p {prompt} -o {output} --steps 8` — and the
+`generate_image` tool runs it server-side (no shell), writing straight into the
+repo. Note: ChatGPT caps each tool call at ~45s, so a slow generator can time
+out there (local MCP clients have no such limit).
 
 ### Sessions (persistent working directory)
 

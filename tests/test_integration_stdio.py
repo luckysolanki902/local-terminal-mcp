@@ -145,6 +145,43 @@ async def test_stdio_write_build_workflow(tmp_path: Path) -> None:
     assert (tmp_path / "sprites" / "frame1.svg").exists()
 
 
+async def test_stdio_binary_write_and_image_read(tmp_path: Path) -> None:
+    """Save a PNG via base64 and read it back as an actual image block."""
+    import base64
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+        "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    )
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "local_terminal_mcp", "--root", str(tmp_path), "--allow-write"],
+    )
+
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+
+            tools = {t.name for t in (await session.list_tools()).tools}
+            assert {"write_file_base64", "read_image"} <= tools
+
+            b64 = base64.b64encode(png).decode()
+            w = await session.call_tool(
+                "write_file_base64",
+                {"path": "sprites/hero.png", "data_base64": b64},
+            )
+            assert "refused" not in _text(w)
+
+            res = await session.call_tool(
+                "read_image", {"path": "sprites/hero.png"}
+            )
+            # The result carries an image content block, not text.
+            kinds = [getattr(b, "type", None) for b in res.content]
+            assert "image" in kinds
+
+    assert (tmp_path / "sprites" / "hero.png").read_bytes() == png
+
+
 async def test_stdio_approval_always_persists(tmp_path: Path) -> None:
     """A non-allowlisted command is approved 'always' and persisted to JSON."""
     root = tmp_path / "root"

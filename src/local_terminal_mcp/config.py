@@ -69,6 +69,9 @@ class ServerConfig:
     approval_timeout: int = 60
     # Persistent JSON allowlist that "always allow" appends to.
     allowlist_file: str | None = None
+    # Local image generator: a command template with {prompt} and {output}.
+    image_gen_cmd: str | None = None
+    image_timeout: int = 300
 
     @property
     def path_secret(self) -> str:
@@ -155,4 +158,6 @@ def load_config() -> ServerConfig:
         approvals_dir=_env("APPROVALS_DIR"),
         approval_timeout=_env_int("APPROVAL_TIMEOUT", 60),
         allowlist_file=_env("ALLOWLIST_FILE"),
+        image_gen_cmd=_env("IMAGE_GEN_CMD"),
+        image_timeout=_env_int("IMAGE_TIMEOUT", 300),
     )

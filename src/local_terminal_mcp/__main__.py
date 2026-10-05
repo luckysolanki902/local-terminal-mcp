@@ -103,6 +103,19 @@ def _build_parser() -> argparse.ArgumentParser:
             "are appended here and persist across restarts."
         ),
     )
+    parser.add_argument(
+        "--image-gen-cmd",
+        help=(
+            "Local image generator command template with {prompt} and {output} "
+            "placeholders, e.g. 'sd -p {prompt} -o {output} --steps 8'. Enables "
+            "the generate_image tool (requires --allow-write)."
+        ),
+    )
+    parser.add_argument(
+        "--image-timeout",
+        type=int,
+        help="Timeout for image generation in seconds (default: 300).",
+    )
     return parser
 
 
@@ -154,6 +167,10 @@ def _apply_overrides(args: argparse.Namespace):
         config.approval_timeout = args.approval_timeout
     if args.allowlist_file:
         config.allowlist_file = args.allowlist_file
+    if args.image_gen_cmd:
+        config.image_gen_cmd = args.image_gen_cmd
+    if args.image_timeout:
+        config.image_timeout = args.image_timeout
     return config
 
 

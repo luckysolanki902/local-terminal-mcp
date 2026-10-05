@@ -8,12 +8,21 @@ they can be unit-tested directly.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import subprocess
 from pathlib import Path
 
 from .allowlist import DynamicAllowlist
 from .approvals import Approver, Decision
+from .imagegen import GeneratorConfigError, build_generator_argv
 from .policy import Policy, PolicyError
+
+# Raster image types that read_image can return to the model as an image.
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"}
+# Keep returned images under this size; MCP clients (notably ChatGPT) cap the
+# size of a tool result, and base64 inflates bytes by ~4/3.
+IMAGE_READ_MAX_BYTES = 1_000_000
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -114,6 +123,98 @@ def write_file(policy: Policy, path: str, content: str) -> str:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     return f"wrote {len(content)} characters to {target}"
+
+
+def write_file_base64(policy: Policy, path: str, data_base64: str) -> str:
+    """Write a binary file (e.g. a PNG) from base64 content (write mode only).
+
+    Accepts a plain base64 string or a ``data:<mime>;base64,<...>`` data URL.
+    This is the path for saving generated images and other binary assets, which
+    a UTF-8 text write cannot carry.
+    """
+    policy.require_write()
+    target = policy.resolve_path(path)
+    payload = data_base64.strip()
+    if payload.startswith("data:") and "," in payload:
+        payload = payload.split(",", 1)[1]
+    try:
+        raw = base64.b64decode(payload, validate=True)
+    except (binascii.Error, ValueError):
+        raise PolicyError("content is not valid base64") from None
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(raw)
+    return f"wrote {len(raw)} bytes to {target}"
+
+
+def resolve_image(policy: Policy, path: str) -> Path:
+    """Validate that ``path`` is a readable raster image inside the root.
+
+    Returns the resolved path; the server wraps it in an MCP image block so the
+    model receives it as an image rather than text.
+    """
+    target = policy.resolve_path(path)
+    if not target.is_file():
+        raise PolicyError(f"{path!r} is not a file")
+    if target.suffix.lower() not in IMAGE_EXTENSIONS:
+        raise PolicyError(
+            f"{path!r} is not a supported image "
+            f"({', '.join(sorted(IMAGE_EXTENSIONS))})"
+        )
+    size = target.stat().st_size
+    if size > IMAGE_READ_MAX_BYTES:
+        raise PolicyError(
+            f"image is {size} bytes; larger than the {IMAGE_READ_MAX_BYTES}-byte "
+            "limit for inline return"
+        )
+    return target
+
+
+def generate_image(
+    policy: Policy,
+    prompt: str,
+    output: str,
+    command_template: str,
+    timeout_seconds: int,
+) -> str:
+    """Run the configured local image generator, writing the file into the root.
+
+    The generator runs server-side (no shell), so the binary never has to be
+    transferred through the connector.
+    """
+    policy.require_write()
+    if not prompt.strip():
+        raise PolicyError("prompt is empty")
+    target = policy.resolve_path(output)
+    try:
+        argv = build_generator_argv(command_template, prompt, str(target))
+    except GeneratorConfigError as exc:
+        raise PolicyError(str(exc)) from None
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        completed = subprocess.run(  # noqa: S603 - argv from operator template
+            argv,
+            cwd=policy.root,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            shell=False,
+        )
+    except FileNotFoundError:
+        raise PolicyError(
+            f"image generator {argv[0]!r} was not found on PATH"
+        ) from None
+    except subprocess.TimeoutExpired:
+        raise PolicyError(
+            f"image generation timed out after {timeout_seconds}s"
+        ) from None
+
+    if completed.returncode != 0:
+        tail = _truncate(completed.stderr or completed.stdout, 2000)
+        raise PolicyError(f"generator failed (exit {completed.returncode}): {tail}")
+    if not target.is_file():
+        raise PolicyError("generator ran but produced no file at the output path")
+    return f"generated image at {target} ({target.stat().st_size} bytes)"
 
 
 def list_directory(policy: Policy, path: str = ".") -> str:
