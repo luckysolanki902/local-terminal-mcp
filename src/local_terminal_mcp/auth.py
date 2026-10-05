@@ -33,6 +33,12 @@ class BearerAuthMiddleware:
             await self._app(scope, receive, send)
             return
 
+        # Let CORS preflight through so the browser extension can upload; the
+        # actual POST still needs the secret path / credentials.
+        if scope.get("method") == "OPTIONS":
+            await self._app(scope, receive, send)
+            return
+
         headers = dict(scope.get("headers") or [])
         provided = headers.get(b"authorization", b"").decode("latin-1")
 

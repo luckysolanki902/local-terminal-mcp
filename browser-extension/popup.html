@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font: 13px system-ui; width: 300px; padding: 12px; }
+      label { display: block; margin: 10px 0 4px; font-weight: 600; }
+      input { width: 100%; box-sizing: border-box; padding: 6px; }
+      button { margin-top: 12px; width: 100%; padding: 8px; cursor: pointer; }
+      .hint { color: #666; font-size: 11px; margin-top: 2px; }
+      #status { margin-top: 8px; color: #166534; }
+    </style>
+  </head>
+  <body>
+    <h3 style="margin:0 0 4px">MCP Image Saver</h3>
+    <label>Server base URL</label>
+    <input id="baseUrl" placeholder="http://localhost:3003" />
+    <div class="hint">Your local-terminal-mcp server (http://localhost:PORT).</div>
+
+    <label>MCP secret path</label>
+    <input id="mcpPath" placeholder="/mcp/your-secret" />
+    <div class="hint">The same path your ChatGPT connector uses, e.g. /mcp/&lt;secret&gt;.</div>
+
+    <label>Target folder (in the repo)</label>
+    <input id="folder" placeholder="assets" />
+
+    <button id="save">Save settings</button>
+    <div id="status"></div>
+    <script src="popup.js"></script>
+  </body>
+</html>

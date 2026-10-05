@@ -256,11 +256,57 @@ def run(config: ServerConfig) -> None:
     # HTTP transport: serve the Streamable-HTTP ASGI app with a health route
     # and the configured authentication, then serve with uvicorn.
     import uvicorn
+    from starlette.responses import JSONResponse, Response
 
     from .auth import HEALTH_PATH, BearerAuthMiddleware, health_endpoint
 
+    policy = config.policy
+    upload_max = 25_000_000
+    allowed_origins = {"https://chatgpt.com", "https://chat.openai.com"}
+
+    def _cors(origin: str) -> dict[str, str]:
+        if origin in allowed_origins:
+            return {
+                "Access-Control-Allow-Origin": origin,
+                "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, X-Target-Path",
+                "Access-Control-Max-Age": "600",
+            }
+        return {}
+
+    async def upload_handler(request):
+        """Receive raw image/file bytes from the browser extension and save them.
+
+        The secret path segment is the credential; write mode and path
+        containment limit what can be written. CORS is restricted to ChatGPT.
+        """
+        cors = _cors(request.headers.get("origin", ""))
+        if request.method == "OPTIONS":
+            return Response(status_code=204, headers=cors)
+        path = request.query_params.get("path") or request.headers.get(
+            "x-target-path", ""
+        )
+        if not path:
+            return JSONResponse(
+                {"error": "missing 'path'"}, status_code=400, headers=cors
+            )
+        body = await request.body()
+        try:
+            target = executor.write_bytes(policy, path, body, upload_max)
+        except PolicyError as exc:
+            return JSONResponse(
+                {"error": str(exc)}, status_code=403, headers=cors
+            )
+        return JSONResponse(
+            {"ok": True, "path": str(target), "bytes": len(body)}, headers=cors
+        )
+
     # Register an unauthenticated health route on the MCP app.
     mcp.custom_route(HEALTH_PATH, methods=["GET"])(health_endpoint)
+    # Upload endpoint lives under the secret path (so the secret gates it).
+    mcp.custom_route(config.mcp_path + "/upload", methods=["POST", "OPTIONS"])(
+        upload_handler
+    )
 
     app = mcp.streamable_http_app(
         host=config.host,

@@ -146,6 +146,17 @@ def write_file_base64(policy: Policy, path: str, data_base64: str) -> str:
     return f"wrote {len(raw)} bytes to {target}"
 
 
+def write_bytes(policy: Policy, path: str, data: bytes, max_bytes: int) -> Path:
+    """Write raw bytes to a file inside the root (write mode). Used by /upload."""
+    policy.require_write()
+    if len(data) > max_bytes:
+        raise PolicyError(f"upload is {len(data)} bytes; exceeds limit {max_bytes}")
+    target = policy.resolve_path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    return target
+
+
 def resolve_image(policy: Policy, path: str) -> Path:
     """Validate that ``path`` is a readable raster image inside the root.
 

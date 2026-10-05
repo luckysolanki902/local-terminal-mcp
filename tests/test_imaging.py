@@ -123,6 +123,30 @@ def test_generate_image_requires_write(tmp_path: Path) -> None:
         executor.generate_image(policy, "x", "o.png", "sd -o {output}", 10)
 
 
+def test_write_bytes_ok(tmp_path: Path) -> None:
+    policy = Policy(root=tmp_path, allow_write=True)
+    target = executor.write_bytes(policy, "assets/a.png", PNG_1X1, max_bytes=1000)
+    assert target.read_bytes() == PNG_1X1
+
+
+def test_write_bytes_requires_write(tmp_path: Path) -> None:
+    policy = Policy(root=tmp_path, allow_write=False)
+    with pytest.raises(PolicyError, match="write operations are disabled"):
+        executor.write_bytes(policy, "a.png", PNG_1X1, max_bytes=1000)
+
+
+def test_write_bytes_size_cap(tmp_path: Path) -> None:
+    policy = Policy(root=tmp_path, allow_write=True)
+    with pytest.raises(PolicyError, match="exceeds limit"):
+        executor.write_bytes(policy, "a.png", b"x" * 2000, max_bytes=1000)
+
+
+def test_write_bytes_contained(tmp_path: Path) -> None:
+    policy = Policy(root=tmp_path, allow_write=True)
+    with pytest.raises(PolicyError):
+        executor.write_bytes(policy, "../escape.png", PNG_1X1, max_bytes=1000)
+
+
 def test_generate_image_missing_generator(tmp_path: Path) -> None:
     policy = Policy(root=tmp_path, allow_write=True)
     with pytest.raises(PolicyError, match="not found on PATH"):

@@ -367,6 +367,16 @@ A program-position wildcard (`*`) and absolute-path programs (`/bin/rm`) are
 `~`, or use `..` are refused — so `cat /etc/passwd` stays blocked even under
 `cat *`. Disable with `--no-contain-path-args`.
 
+### Saving ChatGPT's own generated images
+
+ChatGPT's native image skill renders images only in the browser — the model and
+the MCP server can't reach the bytes, so they can't be saved through a normal
+connector. The **[browser extension](browser-extension/)** bridges this: it reads
+the rendered image from the page and POSTs it to the server's `/upload` endpoint
+(secret-gated, write-mode, path-contained, CORS-restricted to ChatGPT), which
+writes it into your repo at full quality. See
+[browser-extension/README.md](browser-extension/README.md).
+
 ## Approvals & the dynamic allowlist (Claude Code–style)
 
 By default, a command whose program isn't on the static allowlist is simply
