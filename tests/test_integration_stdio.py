@@ -86,6 +86,65 @@ async def test_stdio_session_cd_persists(tmp_path: Path) -> None:
             assert "sub" in _text(pwd)
 
 
+async def test_stdio_write_build_workflow(tmp_path: Path) -> None:
+    """The sprites-style workflow: write files into nested dirs, list, read, git."""
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=[
+            "-m", "local_terminal_mcp",
+            "--root", str(tmp_path),
+            "--allow-write",
+            "--allow-commands", "git *,ls *,cat *,tree,find *",
+        ],
+    )
+
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+
+            tools = {t.name for t in (await session.list_tools()).tools}
+            assert "write_file" in tools  # write mode exposes it
+
+            # Create an HTML preview and a sprite frame in a nested directory.
+            html = "<!doctype html><title>preview</title><svg></svg>"
+            w1 = await session.call_tool(
+                "write_file", {"path": "index.html", "content": html}
+            )
+            assert "refused" not in _text(w1)
+            w2 = await session.call_tool(
+                "write_file",
+                {"path": "sprites/frame1.svg", "content": "<svg/>"},
+            )
+            assert "refused" not in _text(w2)
+
+            listing = _text(
+                await session.call_tool("list_directory", {"path": "."})
+            )
+            assert "index.html" in listing and "sprites" in listing
+
+            back = _text(
+                await session.call_tool("read_file", {"path": "index.html"})
+            )
+            assert "preview" in back
+
+            # git init works under the 'git *' pattern.
+            gi = _text(
+                await session.call_tool("run_command", {"command": "git init"})
+            )
+            assert "refused" not in gi
+
+            # A write escaping the root is refused.
+            esc = _text(
+                await session.call_tool(
+                    "write_file", {"path": "../escape.txt", "content": "x"}
+                )
+            )
+            assert "refused" in esc
+
+    assert (tmp_path / "index.html").read_text() == html
+    assert (tmp_path / "sprites" / "frame1.svg").exists()
+
+
 async def test_stdio_approval_always_persists(tmp_path: Path) -> None:
     """A non-allowlisted command is approved 'always' and persisted to JSON."""
     root = tmp_path / "root"
