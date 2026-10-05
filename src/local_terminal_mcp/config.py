@@ -51,24 +51,55 @@ class ServerConfig:
     transport: str = "stdio"  # "stdio" | "http"
     host: str = "127.0.0.1"
     port: int = 8000
+    # auth_mode: how HTTP requests are authenticated.
+    #   "bearer" - Authorization: Bearer <token> header (for clients that
+    #              support custom headers).
+    #   "path"   - the secret lives in the URL path (a capability URL). Used
+    #              for clients like ChatGPT whose custom-MCP UI only offers
+    #              OAuth or no authentication.
+    auth_mode: str = "bearer"
     auth_token: str | None = None
+    mcp_path: str = "/mcp"
     allowed_hosts: list[str] = field(default_factory=list)
+
+    @property
+    def path_secret(self) -> str:
+        """The final path segment, used as the capability secret in path mode."""
+        return self.mcp_path.rstrip("/").rsplit("/", 1)[-1]
 
     def validate(self) -> None:
         """Fail closed on unsafe combinations.
 
-        The most important rule: an HTTP server must never start without an
-        auth token, because HTTP means it is reachable over the network.
+        An HTTP server must never start without a credential: a bearer token
+        (``bearer`` mode) or an unguessable secret path segment (``path``
+        mode), because HTTP means it is reachable over the network.
         """
         if self.transport not in {"stdio", "http"}:
             raise ConfigError(
                 f"transport must be 'stdio' or 'http', got {self.transport!r}"
             )
-        if self.transport == "http" and not self.auth_token:
+        if self.auth_mode not in {"bearer", "path"}:
             raise ConfigError(
-                "refusing to start an HTTP server without an auth token; "
-                f"set {ENV_PREFIX}AUTH_TOKEN or pass --auth-token"
+                f"auth mode must be 'bearer' or 'path', got {self.auth_mode!r}"
             )
+        if not self.mcp_path.startswith("/"):
+            raise ConfigError("mcp path must start with '/'")
+
+        if self.transport == "http":
+            if self.auth_mode == "bearer":
+                if not self.auth_token:
+                    raise ConfigError(
+                        "refusing to start an HTTP server without an auth token; "
+                        f"set {ENV_PREFIX}AUTH_TOKEN or pass --auth-token"
+                    )
+            elif self.auth_mode == "path":
+                if len(self.path_secret) < 24:
+                    raise ConfigError(
+                        "path auth requires an unguessable mcp path whose final "
+                        "segment is at least 24 characters, e.g. "
+                        "--mcp-path /mcp/$(openssl rand -hex 16)"
+                    )
+
         if self.auth_token is not None and len(self.auth_token) < 16:
             raise ConfigError("auth token must be at least 16 characters")
         if not self.policy.root.is_dir():
@@ -96,7 +127,9 @@ def load_config() -> ServerConfig:
         transport=_env("TRANSPORT", "stdio") or "stdio",
         host=_env("HOST", "127.0.0.1") or "127.0.0.1",
         port=_env_int("PORT", 8000),
+        auth_mode=_env("AUTH_MODE", "bearer") or "bearer",
         auth_token=_env("AUTH_TOKEN"),
+        mcp_path=_env("MCP_PATH", "/mcp") or "/mcp",
         allowed_hosts=[
             h.strip() for h in (_env("ALLOWED_HOSTS") or "").split(",") if h.strip()
         ],

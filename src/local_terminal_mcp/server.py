@@ -100,8 +100,8 @@ def run(config: ServerConfig) -> None:
         mcp.run(transport="stdio")
         return
 
-    # HTTP transport: wrap the Streamable-HTTP ASGI app with bearer auth and a
-    # health route, then serve with uvicorn.
+    # HTTP transport: serve the Streamable-HTTP ASGI app with a health route
+    # and the configured authentication, then serve with uvicorn.
     import uvicorn
 
     from .auth import HEALTH_PATH, BearerAuthMiddleware, health_endpoint
@@ -111,9 +111,15 @@ def run(config: ServerConfig) -> None:
 
     app = mcp.streamable_http_app(
         host=config.host,
+        streamable_http_path=config.mcp_path,
         transport_security=_transport_security(config),
     )
-    assert config.auth_token is not None  # guaranteed by config.validate()
-    app.add_middleware(BearerAuthMiddleware, token=config.auth_token)
+
+    if config.auth_mode == "bearer":
+        # Guaranteed by config.validate().
+        assert config.auth_token is not None
+        app.add_middleware(BearerAuthMiddleware, token=config.auth_token)
+    # In "path" mode the unguessable mcp_path is the credential: the MCP route
+    # only exists at that path, so unauthenticated probes of other paths 404.
 
     uvicorn.run(app, host=config.host, port=config.port, log_level="info")

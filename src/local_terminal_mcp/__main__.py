@@ -28,7 +28,25 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", help="HTTP bind host (default: 127.0.0.1).")
     parser.add_argument("--port", type=int, help="HTTP bind port (default: 8000).")
     parser.add_argument(
-        "--auth-token", help="Bearer token required for HTTP transport."
+        "--auth",
+        dest="auth_mode",
+        choices=["bearer", "path"],
+        help=(
+            "HTTP authentication mode: 'bearer' (Authorization header) or "
+            "'path' (secret in the URL path, for clients like ChatGPT that "
+            "cannot send a custom header). Default: bearer."
+        ),
+    )
+    parser.add_argument(
+        "--auth-token", help="Bearer token required for 'bearer' HTTP auth."
+    )
+    parser.add_argument(
+        "--mcp-path",
+        help=(
+            "Path the MCP endpoint is served at (default: /mcp). For 'path' "
+            "auth, include a long random final segment, e.g. "
+            "/mcp/$(openssl rand -hex 16)."
+        ),
     )
     parser.add_argument(
         "--allowed-hosts",
@@ -76,8 +94,12 @@ def _apply_overrides(args: argparse.Namespace):
         config.host = args.host
     if args.port:
         config.port = args.port
+    if args.auth_mode:
+        config.auth_mode = args.auth_mode
     if args.auth_token:
         config.auth_token = args.auth_token
+    if args.mcp_path:
+        config.mcp_path = args.mcp_path
     if args.allowed_hosts:
         config.allowed_hosts = [
             h.strip() for h in args.allowed_hosts.split(",") if h.strip()

@@ -26,7 +26,7 @@ API/agent tokens.
 - [Quick start (local / stdio)](#quick-start-local--stdio)
 - [Connect to Claude Desktop](#connect-to-claude-desktop)
 - [Connect to Claude Code](#connect-to-claude-code)
-- [Connect to ChatGPT (over the internet)](#connect-to-chatgpt-over-the-internet)
+- [Connect to ChatGPT (over the internet)](#connect-to-chatgpt-over-the-internet) · [exact step-by-step guide](docs/CHATGPT_SETUP.md)
 - [Configuration reference](#configuration-reference)
 - [Tools exposed](#tools-exposed)
 - [Development](#development)
@@ -151,21 +151,36 @@ Then `/mcp` inside Claude Code will list the server.
 
 ## Connect to ChatGPT (over the internet)
 
+> 📄 **For the exact, step-by-step tested procedure, see
+> [docs/CHATGPT_SETUP.md](docs/CHATGPT_SETUP.md).** The summary below covers the
+> same flow.
+
 ChatGPT can only reach servers over public HTTPS, so run in HTTP mode behind a
 tunnel. The flow is: **(1)** start the server, **(2)** expose it with a tunnel
 (ngrok *or* cloudflared), **(3)** add the connector in ChatGPT.
 
-The server validates the incoming `Host` header for DNS-rebinding protection.
-Because tunnels forward an arbitrary public hostname and every request already
-requires a bearer token, the server accepts any host by default. For defense in
-depth, pin it to your tunnel hostname with `--allowed-hosts`.
+> **Why `path` auth for ChatGPT?** ChatGPT's *Create custom MCP server* dialog
+> only offers **OAuth** or **No authentication** — there is no field for a
+> static bearer token. So instead of a header, we put an unguessable secret in
+> the URL path (a *capability URL*) and select **No authentication** in ChatGPT.
+> The MCP route exists only at that secret path; probes of the bare `/mcp`
+> return 404. This is appropriate for personal use; note the secret appears in
+> the URL (and thus in edge/proxy logs). For a shared or higher-value
+> deployment, implement OAuth instead.
 
-### Step 1 — start the server in HTTP mode
+The server also validates the incoming `Host` header for DNS-rebinding
+protection. Because tunnels forward an arbitrary public hostname, the server
+accepts any host by default; pin it to your tunnel hostname with
+`--allowed-hosts` for defense in depth.
+
+### Step 1 — start the server in HTTP mode (path auth)
 
 ```bash
-export LTMCP_AUTH_TOKEN="$(openssl rand -hex 24)"
-echo "token: $LTMCP_AUTH_TOKEN"   # you'll paste this into ChatGPT
-local-terminal-mcp --transport http --host 127.0.0.1 --port 8000 --root /path/to/your/repo
+SECRET="$(openssl rand -hex 16)"
+echo "MCP URL path: /mcp/$SECRET"
+local-terminal-mcp --transport http --host 127.0.0.1 --port 8000 \
+  --root /path/to/your/repo \
+  --auth path --mcp-path "/mcp/$SECRET"
 ```
 
 ### Step 2 — expose it with a tunnel
@@ -187,7 +202,8 @@ ngrok http 8000
 ```
 
 ngrok prints a forwarding URL like `https://a1b2-34-56.ngrok-free.app`. Your
-MCP endpoint is that URL + `/mcp`.
+MCP endpoint is that URL + your secret path, e.g.
+`https://a1b2-34-56.ngrok-free.app/mcp/<SECRET>`.
 
 Notes for the **free tier**:
 
@@ -199,6 +215,7 @@ Notes for the **free tier**:
 
   ```bash
   local-terminal-mcp --transport http --port 8000 --root /path/to/repo \
+    --auth path --mcp-path "/mcp/$SECRET" \
     --allowed-hosts a1b2-34-56.ngrok-free.app
   ```
 
@@ -223,24 +240,28 @@ ingress:
 cloudflared tunnel run lucky-tunnel
 ```
 
-Strongly recommended: put **Cloudflare Access** in front of
-`mcp.yourdomain.com`. Your MCP endpoint is `https://mcp.yourdomain.com/mcp`.
+Your MCP endpoint is `https://mcp.yourdomain.com/mcp/<SECRET>`. (If you also
+front it with Cloudflare Access, note ChatGPT cannot complete an Access login,
+so use a reserved port/hostname routed directly to the server, as here, rather
+than an Access-gated one.)
 
 </details>
 
 ### Step 3 — add the connector in ChatGPT
 
-Requires a plan with Developer Mode (Plus/Pro/Team/Enterprise/Edu as of late
-2025):
+Requires a plan that has the custom MCP feature (Plus/Pro/Team/Enterprise/Edu):
 
-- Settings → **Connectors** → **Advanced** → enable **Developer Mode**.
-- **Add custom connector** → URL: your tunnel URL + `/mcp`
-  (e.g. `https://a1b2-34-56.ngrok-free.app/mcp`).
-- Authentication: **Bearer token** → paste the token from step 1.
-- Confirm trust. ChatGPT discovers the tools automatically.
+- **Plugins** → **Add ▾** → **Create custom MCP server**.
+- **Name**: e.g. `Local Terminal`.
+- **Server URL**: your tunnel URL + secret path
+  (e.g. `https://a1b2-34-56.ngrok-free.app/mcp/<SECRET>`).
+- **Authentication**: **No authentication** (the secret path is the credential).
+- Tick **I understand and want to continue**, then **Create as a plugin** and
+  **Connect**.
 
-The MCP endpoint is served at the `/mcp` path. A `GET /healthz` endpoint (no
-auth) is available for tunnel/uptime checks.
+ChatGPT discovers the tools automatically. A `GET /healthz` endpoint (no auth)
+is available for tunnel/uptime checks. To use the tools in a chat, ask ChatGPT
+to use the connector by name.
 
 ## Configuration reference
 
@@ -253,7 +274,9 @@ flags win over environment variables.
 | `--transport` | `LTMCP_TRANSPORT` | `stdio` | `stdio` or `http` |
 | `--host` | `LTMCP_HOST` | `127.0.0.1` | HTTP bind host |
 | `--port` | `LTMCP_PORT` | `8000` | HTTP bind port |
-| `--auth-token` | `LTMCP_AUTH_TOKEN` | — | Bearer token (required for HTTP) |
+| `--auth` | `LTMCP_AUTH_MODE` | `bearer` | HTTP auth mode: `bearer` (header) or `path` (secret in URL) |
+| `--auth-token` | `LTMCP_AUTH_TOKEN` | — | Bearer token (required for `bearer` mode) |
+| `--mcp-path` | `LTMCP_MCP_PATH` | `/mcp` | Path the MCP endpoint is served at; for `path` auth, end it with a long random segment |
 | `--allowed-hosts` | `LTMCP_ALLOWED_HOSTS` | any | Comma-separated `Host` header allowlist (e.g. your tunnel hostname) |
 | `--allow-commands` | `LTMCP_ALLOW_COMMANDS` | read-only set | Comma-separated allowlist |
 | `--allow-write` | `LTMCP_ALLOW_WRITE` | `false` | Enable `write_file` |
@@ -285,9 +308,12 @@ The security-critical logic lives in `policy.py` and is covered by
 **Can it run any command?** No — only programs on the allowlist, one at a time,
 with no shell. Expand the allowlist with `--allow-commands` if you need more.
 
-**Is the obscure tunnel URL enough protection?** No. Always use a bearer token,
-and put Cloudflare Access (or similar) in front for anything beyond quick local
-testing.
+**How is the HTTP endpoint protected?** With a credential, never obscurity of
+the tunnel hostname alone. Use `bearer` auth (header token) for clients that
+support custom headers, or `path` auth (a long random secret in the URL, a
+*capability URL*) for ChatGPT, whose UI only offers OAuth or no-auth. For a
+shared or higher-value deployment, implement OAuth and/or front it with
+Cloudflare Access.
 
 **Why no pipes or `&&`?** Because allowing shell composition is the easiest way
 to smuggle a dangerous command past an allowlist. Run multiple tool calls

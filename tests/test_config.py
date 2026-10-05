@@ -76,3 +76,40 @@ def test_missing_root_is_refused(tmp_path: Path) -> None:
     cfg = ServerConfig(policy=Policy(root=tmp_path / "does-not-exist"))
     with pytest.raises(ConfigError, match="not a directory"):
         cfg.validate()
+
+
+def test_path_auth_requires_long_secret(tmp_path: Path) -> None:
+    cfg = ServerConfig(
+        policy=Policy(root=tmp_path),
+        transport="http",
+        auth_mode="path",
+        mcp_path="/mcp/short",
+    )
+    with pytest.raises(ConfigError, match="at least 24 characters"):
+        cfg.validate()
+
+
+def test_path_auth_with_long_secret_validates(tmp_path: Path) -> None:
+    cfg = ServerConfig(
+        policy=Policy(root=tmp_path),
+        transport="http",
+        auth_mode="path",
+        mcp_path="/mcp/" + "a" * 32,
+    )
+    cfg.validate()  # no raise
+    assert cfg.path_secret == "a" * 32
+
+
+def test_unknown_auth_mode_is_refused(tmp_path: Path) -> None:
+    cfg = ServerConfig(policy=Policy(root=tmp_path), auth_mode="magic")
+    with pytest.raises(ConfigError, match="auth mode must be"):
+        cfg.validate()
+
+
+def test_path_auth_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LTMCP_ROOT", str(tmp_path))
+    monkeypatch.setenv("LTMCP_AUTH_MODE", "path")
+    monkeypatch.setenv("LTMCP_MCP_PATH", "/mcp/" + "b" * 32)
+    cfg = load_config()
+    assert cfg.auth_mode == "path"
+    assert cfg.mcp_path == "/mcp/" + "b" * 32
