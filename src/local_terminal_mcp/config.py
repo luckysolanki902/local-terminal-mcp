@@ -72,6 +72,9 @@ class ServerConfig:
     # Local image generator: a command template with {prompt} and {output}.
     image_gen_cmd: str | None = None
     image_timeout: int = 300
+    # A trusted directory (e.g. ~/Downloads) the connector may import files
+    # FROM into the root. Read-only source; writes still go only to the root.
+    inbox_dir: str | None = None
 
     @property
     def path_secret(self) -> str:
@@ -124,6 +127,8 @@ class ServerConfig:
             )
         if not self.policy.root.is_dir():
             raise ConfigError(f"root {self.policy.root} is not a directory")
+        if self.inbox_dir and not Path(self.inbox_dir).expanduser().is_dir():
+            raise ConfigError(f"inbox {self.inbox_dir} is not a directory")
 
 
 def _parse_commands(raw: str | None) -> frozenset[str]:
@@ -160,4 +165,5 @@ def load_config() -> ServerConfig:
         allowlist_file=_env("ALLOWLIST_FILE"),
         image_gen_cmd=_env("IMAGE_GEN_CMD"),
         image_timeout=_env_int("IMAGE_TIMEOUT", 300),
+        inbox_dir=_env("INBOX"),
     )

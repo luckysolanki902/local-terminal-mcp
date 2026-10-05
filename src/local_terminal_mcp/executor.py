@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import base64
 import binascii
+import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from .allowlist import DynamicAllowlist
@@ -226,6 +228,84 @@ def generate_image(
     if not target.is_file():
         raise PolicyError("generator ran but produced no file at the output path")
     return f"generated image at {target} ({target.stat().st_size} bytes)"
+
+
+def _resolve_under(base: Path, name: str) -> Path:
+    """Resolve ``name`` and guarantee it stays inside ``base`` (e.g. the inbox)."""
+    candidate = Path(name)
+    if not candidate.is_absolute():
+        candidate = base / candidate
+    resolved = candidate.expanduser().resolve()
+    if resolved != base and base not in resolved.parents:
+        raise PolicyError(f"{name!r} is outside the inbox directory")
+    return resolved
+
+
+def list_inbox(inbox_dir: Path, images_only: bool = True, limit: int = 20) -> str:
+    """List recent files in the import inbox (newest first)."""
+    inbox = inbox_dir.expanduser().resolve()
+    entries = [p for p in inbox.iterdir() if p.is_file()]
+    if images_only:
+        entries = [p for p in entries if p.suffix.lower() in IMAGE_EXTENSIONS]
+    entries.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    entries = entries[:limit]
+    if not entries:
+        return "(inbox empty)"
+    lines = []
+    for p in entries:
+        st = p.stat()
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime))
+        lines.append(f"{p.name}\t{st.st_size}B\t{when}")
+    return "\n".join(lines)
+
+
+def import_file(
+    policy: Policy, inbox_dir: Path, src_name: str, dest: str, move: bool = False
+) -> str:
+    """Copy (or move) a file from the inbox into the project root (write mode)."""
+    policy.require_write()
+    src = _resolve_under(inbox_dir.expanduser().resolve(), src_name)
+    if not src.is_file():
+        raise PolicyError(f"{src_name!r} is not a file in the inbox")
+    target = policy.resolve_path(dest)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if move:
+        shutil.move(str(src), str(target))
+    else:
+        shutil.copy2(src, target)
+    return f"{'moved' if move else 'copied'} {src.name} -> {target}"
+
+
+def import_recent_images(
+    policy: Policy,
+    inbox_dir: Path,
+    dest_folder: str,
+    count: int = 1,
+    move: bool = False,
+) -> str:
+    """Import the ``count`` most recent images from the inbox into a folder."""
+    policy.require_write()
+    inbox = inbox_dir.expanduser().resolve()
+    imgs = [
+        p
+        for p in inbox.iterdir()
+        if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+    ]
+    imgs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    imgs = imgs[: max(1, count)]
+    if not imgs:
+        raise PolicyError("no images found in the inbox")
+    results = []
+    for p in imgs:
+        target = policy.resolve_path(f"{dest_folder.rstrip('/')}/{p.name}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if move:
+            shutil.move(str(p), str(target))
+        else:
+            shutil.copy2(p, target)
+        results.append(str(target))
+    verb = "moved" if move else "copied"
+    return f"{verb} {len(results)} image(s):\n" + "\n".join(results)
 
 
 def list_directory(policy: Policy, path: str = ".") -> str:

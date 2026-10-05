@@ -314,6 +314,7 @@ flags win over environment variables.
 | `--allowlist-file` | `LTMCP_ALLOWLIST_FILE` | — | JSON file that "always allow" appends to |
 | `--image-gen-cmd` | `LTMCP_IMAGE_GEN_CMD` | — | Local image generator template (`{prompt}`/`{output}`); enables `generate_image` |
 | `--image-timeout` | `LTMCP_IMAGE_TIMEOUT` | `300` | Image generation timeout (seconds) |
+| `--inbox` | `LTMCP_INBOX` | — | Trusted folder (e.g. `~/Downloads`) to import files FROM; enables the import tools |
 | `--allow-write` | `LTMCP_ALLOW_WRITE` | `false` | Enable `write_file`, `write_file_base64`, `generate_image` |
 | `--max-output-bytes` | `LTMCP_MAX_OUTPUT_BYTES` | `100000` | Output truncation limit |
 | `--timeout` | `LTMCP_TIMEOUT` | `120` | Per-command timeout (seconds) |
@@ -332,6 +333,9 @@ flags win over environment variables.
 | `write_file` | `--allow-write` | Write a UTF-8 text file inside the root. |
 | `write_file_base64` | `--allow-write` | Write a **binary** file (e.g. a PNG) from base64 — for saving generated images and other assets. |
 | `generate_image` | `--image-gen-cmd` | Generate an image from a prompt using a **local** generator, saved into the root. |
+| `list_inbox` | `--inbox` | List recent files (images) in a trusted inbox folder (e.g. Downloads). |
+| `import_recent_images` | `--inbox` + `--allow-write` | Import the most recent image(s) from the inbox into the repo. |
+| `import_file` | `--inbox` + `--allow-write` | Import a named file from the inbox into the repo. |
 
 ### Images
 
@@ -376,6 +380,17 @@ the rendered image from the page and POSTs it to the server's `/upload` endpoint
 (secret-gated, write-mode, path-contained, CORS-restricted to ChatGPT), which
 writes it into your repo at full quality. See
 [browser-extension/README.md](browser-extension/README.md).
+
+**No-install alternative — download + import.** If you'd rather not load the
+extension, use ChatGPT's own download button (saves the full-res image to your
+Downloads folder), then point the server at that folder with `--inbox ~/Downloads`
+and ask the connector to pull them in:
+
+> *"Local Terminal: import the 3 most recent images from my inbox into assets/."*
+
+The `import_recent_images` / `import_file` tools copy (or move) them from the
+inbox into the repo. The inbox is read-only as a source; writes still only ever
+land inside the root.
 
 ## Approvals & the dynamic allowlist (Claude Code–style)
 

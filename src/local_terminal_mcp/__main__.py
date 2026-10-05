@@ -116,6 +116,14 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         help="Timeout for image generation in seconds (default: 300).",
     )
+    parser.add_argument(
+        "--inbox",
+        help=(
+            "A trusted directory (e.g. ~/Downloads) the connector may import "
+            "files FROM into the repo; enables the list_inbox / "
+            "import_recent_images / import_file tools (requires --allow-write)."
+        ),
+    )
     return parser
 
 
@@ -171,6 +179,8 @@ def _apply_overrides(args: argparse.Namespace):
         config.image_gen_cmd = args.image_gen_cmd
     if args.image_timeout:
         config.image_timeout = args.image_timeout
+    if args.inbox:
+        config.inbox_dir = args.inbox
     return config
 
 

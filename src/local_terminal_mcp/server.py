@@ -199,6 +199,51 @@ def build_server(config: ServerConfig) -> MCPServer:
             except PolicyError as exc:
                 return f"refused: {exc}"
 
+    if config.inbox_dir and policy.allow_write:
+        inbox = Path(config.inbox_dir).expanduser()
+
+        @mcp.tool(
+            description=(
+                "List recent image files in the import inbox (e.g. your "
+                "Downloads folder), newest first. Use import_recent_images or "
+                "import_file to bring them into the repo."
+            )
+        )
+        def list_inbox(images_only: bool = True, limit: int = 20) -> str:
+            try:
+                return executor.list_inbox(inbox, images_only, limit)
+            except (PolicyError, OSError) as exc:
+                return f"refused: {exc}"
+
+        @mcp.tool(
+            description=(
+                "Import the most recent image(s) from the inbox into a folder "
+                "inside the repo. Great for saving images you just downloaded "
+                "from ChatGPT. Set move=true to move instead of copy."
+            )
+        )
+        def import_recent_images(
+            dest_folder: str = "assets", count: int = 1, move: bool = False
+        ) -> str:
+            try:
+                return executor.import_recent_images(
+                    policy, inbox, dest_folder, count, move
+                )
+            except PolicyError as exc:
+                return f"refused: {exc}"
+
+        @mcp.tool(
+            description=(
+                "Import a specific file (by name) from the inbox into a path "
+                "inside the repo. Set move=true to move instead of copy."
+            )
+        )
+        def import_file(src_name: str, dest: str, move: bool = False) -> str:
+            try:
+                return executor.import_file(policy, inbox, src_name, dest, move)
+            except PolicyError as exc:
+                return f"refused: {exc}"
+
     if config.image_gen_cmd:
 
         @mcp.tool(
