@@ -40,16 +40,31 @@
     setTimeout(() => (el.style.opacity = "0"), 4000);
   }
 
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    });
+  }
+
   async function saveOne(src, name, cfg) {
+    // Fetching the page's own blob: URL is same-origin and allowed here.
     const blob = await fetch(src).then((r) => r.blob());
     const ext = (blob.type.split("/")[1] || "png").replace("jpeg", "jpg");
     const path = `${cfg.folder || "assets"}/${name}.${ext}`;
     const url = `${cfg.baseUrl}${cfg.mcpPath}/upload?path=${encodeURIComponent(
       path
     )}`;
-    const resp = await fetch(url, { method: "POST", body: blob });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
-    return resp.json();
+    const dataUrl = await blobToDataUrl(blob);
+    // The cross-origin POST to localhost happens in the background worker,
+    // which bypasses the page's CSP/CORS.
+    const res = await chrome.runtime.sendMessage({ type: "upload", url, dataUrl });
+    if (!res || !res.ok) {
+      throw new Error(res && (res.error || `HTTP ${res.status}: ${res.body}`));
+    }
+    return res;
   }
 
   async function saveAll() {
