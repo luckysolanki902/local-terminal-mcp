@@ -160,16 +160,21 @@ def build_server(config: ServerConfig) -> MCPServer:
     @mcp.tool(
         description=(
             "Read an image file (png/jpg/gif/webp/bmp) inside the project root "
-            "and return it as an image so you can actually see it."
+            "and return it as an image so you can actually see it. Large images "
+            "are auto-downscaled to fit; the file on disk is left unchanged."
         ),
         structured_output=False,
     )
     def read_image(path: str):
         try:
-            target = executor.resolve_image(policy, path)
+            data, fmt = executor.read_image_payload(
+                policy, path, executor.IMAGE_READ_MAX_BYTES
+            )
         except PolicyError as exc:
             return f"refused: {exc}"
-        return Image(path=str(target))
+        # Large images are returned downscaled so the model can still see them;
+        # the file on disk is unchanged.
+        return Image(data=data, format=fmt)
 
     if policy.allow_write:
 
@@ -201,16 +206,22 @@ def build_server(config: ServerConfig) -> MCPServer:
 
     if config.inbox_dir and policy.allow_write:
         inbox = Path(config.inbox_dir).expanduser()
+        inbox.mkdir(parents=True, exist_ok=True)
+        inbox_ttl = config.inbox_ttl_days
+
+        def _clean() -> None:
+            executor.cleanup_inbox(inbox, inbox_ttl)
 
         @mcp.tool(
             description=(
-                "List recent image files in the import inbox (e.g. your "
-                "Downloads folder), newest first. Use import_recent_images or "
-                "import_file to bring them into the repo."
+                "List recent image files in the import inbox (a staging folder), "
+                "newest first. Use import_recent_images or import_file to bring "
+                "them into the repo. Old files in the inbox are auto-cleaned."
             )
         )
         def list_inbox(images_only: bool = True, limit: int = 20) -> str:
             try:
+                _clean()
                 return executor.list_inbox(inbox, images_only, limit)
             except (PolicyError, OSError) as exc:
                 return f"refused: {exc}"
@@ -226,6 +237,7 @@ def build_server(config: ServerConfig) -> MCPServer:
             dest_folder: str = "assets", count: int = 1, move: bool = False
         ) -> str:
             try:
+                _clean()
                 return executor.import_recent_images(
                     policy, inbox, dest_folder, count, move
                 )
@@ -292,6 +304,8 @@ def _transport_security(config: ServerConfig):
 def run(config: ServerConfig) -> None:
     """Start the server using the configured transport."""
     config.validate()
+    if config.inbox_dir and config.inbox_ttl_days > 0:
+        executor.cleanup_inbox(Path(config.inbox_dir), config.inbox_ttl_days)
     mcp = build_server(config)
 
     if config.transport == "stdio":

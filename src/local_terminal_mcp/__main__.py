@@ -119,9 +119,18 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--inbox",
         help=(
-            "A trusted directory (e.g. ~/Downloads) the connector may import "
-            "files FROM into the repo; enables the list_inbox / "
-            "import_recent_images / import_file tools (requires --allow-write)."
+            "A staging directory (ideally a folder inside the repo) the "
+            "connector may import files FROM into the repo; enables the "
+            "list_inbox / import_recent_images / import_file tools (requires "
+            "--allow-write)."
+        ),
+    )
+    parser.add_argument(
+        "--inbox-ttl-days",
+        type=int,
+        help=(
+            "Auto-delete files in the inbox older than this many days "
+            "(default 0 = never). Use only with a dedicated staging folder."
         ),
     )
     return parser
@@ -181,6 +190,8 @@ def _apply_overrides(args: argparse.Namespace):
         config.image_timeout = args.image_timeout
     if args.inbox:
         config.inbox_dir = args.inbox
+    if args.inbox_ttl_days is not None:
+        config.inbox_ttl_days = args.inbox_ttl_days
     return config
 
 

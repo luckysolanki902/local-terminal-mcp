@@ -77,6 +77,32 @@ def test_resolve_image_rejects_too_large(tmp_path: Path) -> None:
         executor.resolve_image(policy, "big.png")
 
 
+def test_read_image_payload_small_is_exact(tmp_path: Path) -> None:
+    (tmp_path / "a.png").write_bytes(PNG_1X1)
+    policy = Policy(root=tmp_path)
+    data, fmt = executor.read_image_payload(policy, "a.png", max_bytes=100_000)
+    assert data == PNG_1X1 and fmt == "png"
+
+
+def test_read_image_payload_downscales_large(tmp_path: Path) -> None:
+    import os
+
+    from PIL import Image as PILImage
+
+    # A big, high-entropy image that won't compress under the cap at full size.
+    big = PILImage.frombytes("RGB", (2000, 2000), os.urandom(2000 * 2000 * 3))
+    big.save(tmp_path / "big.png")
+    assert (tmp_path / "big.png").stat().st_size > 1_000_000
+
+    policy = Policy(root=tmp_path)
+    cap = 500_000
+    data, fmt = executor.read_image_payload(policy, "big.png", max_bytes=cap)
+    assert fmt == "jpeg"
+    assert len(data) <= cap
+    # original on disk is untouched
+    assert (tmp_path / "big.png").stat().st_size > 1_000_000
+
+
 # -- generator argv building -----------------------------------------------
 
 

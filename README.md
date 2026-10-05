@@ -314,7 +314,8 @@ flags win over environment variables.
 | `--allowlist-file` | `LTMCP_ALLOWLIST_FILE` | — | JSON file that "always allow" appends to |
 | `--image-gen-cmd` | `LTMCP_IMAGE_GEN_CMD` | — | Local image generator template (`{prompt}`/`{output}`); enables `generate_image` |
 | `--image-timeout` | `LTMCP_IMAGE_TIMEOUT` | `300` | Image generation timeout (seconds) |
-| `--inbox` | `LTMCP_INBOX` | — | Trusted folder (e.g. `~/Downloads`) to import files FROM; enables the import tools |
+| `--inbox` | `LTMCP_INBOX` | — | Staging folder (ideally a repo subdir like `incoming`) to import files FROM; enables the import tools |
+| `--inbox-ttl-days` | `LTMCP_INBOX_TTL_DAYS` | `0` | Auto-delete inbox files older than N days (`0` = never); use only with a dedicated staging folder |
 | `--allow-write` | `LTMCP_ALLOW_WRITE` | `false` | Enable `write_file`, `write_file_base64`, `generate_image` |
 | `--max-output-bytes` | `LTMCP_MAX_OUTPUT_BYTES` | `100000` | Output truncation limit |
 | `--timeout` | `LTMCP_TIMEOUT` | `120` | Per-command timeout (seconds) |
@@ -325,7 +326,7 @@ flags win over environment variables.
 |---|---|---|
 | `run_command` | always | Run one allowlisted command (no shell). `cd` persists per session; takes an optional `session`. |
 | `read_file` | always | Read a text file inside the root. |
-| `read_image` | always | Read an image (png/jpg/gif/webp/bmp) and return it **as an image** the model can see. |
+| `read_image` | always | Read an image (png/jpg/gif/webp/bmp) and return it **as an image** the model can see (large images are auto-downscaled to fit). |
 | `list_directory` | always | List a directory inside the root. |
 | `open_terminal` | always | Open a session with its own persistent working directory. |
 | `list_terminals` | always | List open sessions and their directories. |
@@ -346,8 +347,17 @@ getting base64 text. To generate images locally (free, unlimited, on your
 machine), point `--image-gen-cmd` at a local generator with `{prompt}` and
 `{output}` placeholders — e.g. `sd -p {prompt} -o {output} --steps 8` — and the
 `generate_image` tool runs it server-side (no shell), writing straight into the
-repo. Note: ChatGPT caps each tool call at ~45s, so a slow generator can time
-out there (local MCP clients have no such limit).
+repo. A ready-to-use example generator is included at
+[`examples/pixel_gen.py`](examples/pixel_gen.py) (procedural pixel-art sprites,
+no model download — `--image-gen-cmd "python examples/pixel_gen.py {prompt} {output}"`);
+swap in mflux / stable-diffusion.cpp / the OpenAI image API for photoreal output.
+Note: ChatGPT caps each tool call at ~45s, so a slow generator can time out there
+(local MCP clients have no such limit).
+
+> **Note on ChatGPT's *own* image skill.** The above generates images via a
+> *local* tool. ChatGPT's built-in "Create image" produces pictures that live
+> only in the browser and can't be handed to a connector — to save those, see
+> [Saving ChatGPT's own generated images](#saving-chatgpts-own-generated-images).
 
 ### Sessions (persistent working directory)
 
@@ -373,24 +383,42 @@ A program-position wildcard (`*`) and absolute-path programs (`/bin/rm`) are
 
 ### Saving ChatGPT's own generated images
 
-ChatGPT's native image skill renders images only in the browser — the model and
-the MCP server can't reach the bytes, so they can't be saved through a normal
-connector. The **[browser extension](browser-extension/)** bridges this: it reads
-the rendered image from the page and POSTs it to the server's `/upload` endpoint
-(secret-gated, write-mode, path-contained, CORS-restricted to ChatGPT), which
-writes it into your repo at full quality. See
+ChatGPT's native image skill renders images **only in the browser** — the model
+and the MCP server never receive the bytes (no URL either), so they can't be
+saved through a normal connector tool. There are two working routes:
+
+**Route 1 — browser extension (recommended; full quality, one click).** The
+[browser extension](browser-extension/) reads the rendered image from the page
+and POSTs it to the server's `/upload` endpoint (secret-gated, write-mode,
+path-contained, CORS-restricted to ChatGPT), writing it straight into your repo.
+Point it at a staging folder like `incoming/`. Setup:
 [browser-extension/README.md](browser-extension/README.md).
 
-**No-install alternative — download + import.** If you'd rather not load the
-extension, use ChatGPT's own download button (saves the full-res image to your
-Downloads folder), then point the server at that folder with `--inbox ~/Downloads`
-and ask the connector to pull them in:
+**Route 2 — download + import (no install).** Use ChatGPT's own download button
+(saves the full-res image to your Downloads folder), then import it with the
+inbox tools. Run with a staging inbox and a TTL so it self-cleans:
+
+```bash
+local-terminal-mcp --transport http --port 3003 --root /path/to/repo \
+  --auth path --mcp-path "/mcp/$SECRET" --allow-write \
+  --inbox /path/to/repo/incoming --inbox-ttl-days 7
+```
+
+Then, after downloading images into that folder (or configuring the extension to
+upload there):
 
 > *"Local Terminal: import the 3 most recent images from my inbox into assets/."*
 
-The `import_recent_images` / `import_file` tools copy (or move) them from the
-inbox into the repo. The inbox is read-only as a source; writes still only ever
-land inside the root.
+`list_inbox` lists the staging folder, `import_recent_images` / `import_file`
+copy or move them into a permanent folder, and files left in the inbox longer
+than `--inbox-ttl-days` are auto-deleted. The inbox is a source only — writes
+still land only inside the root.
+
+> **Reading images back.** `read_image` returns an image file as an MCP image
+> block, so the assistant can actually *see* it — describe art, read text from a
+> screenshot/resume, etc. Large images are auto-downscaled to fit the transport
+> limit (Pillow required — `pip install -e ".[images]"`); the file on disk is
+> unchanged.
 
 ## Approvals & the dynamic allowlist (Claude Code–style)
 

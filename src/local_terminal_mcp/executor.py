@@ -159,6 +159,64 @@ def write_bytes(policy: Policy, path: str, data: bytes, max_bytes: int) -> Path:
     return target
 
 
+_IMAGE_FORMATS = {
+    ".png": "png",
+    ".jpg": "jpeg",
+    ".jpeg": "jpeg",
+    ".gif": "gif",
+    ".webp": "webp",
+    ".bmp": "bmp",
+}
+
+
+def read_image_payload(policy: Policy, path: str, max_bytes: int) -> tuple[bytes, str]:
+    """Return image bytes (and format) to hand the model, downscaling if needed.
+
+    Small images are returned as-is (exact bytes). An image larger than
+    ``max_bytes`` is downscaled to a JPEG that fits, so the model can still see
+    it — the original file on disk is never modified. Downscaling needs Pillow;
+    without it, an oversized image is refused.
+    """
+    target = policy.resolve_path(path)
+    if not target.is_file():
+        raise PolicyError(f"{path!r} is not a file")
+    fmt = _IMAGE_FORMATS.get(target.suffix.lower())
+    if fmt is None:
+        raise PolicyError(
+            f"{path!r} is not a supported image "
+            f"({', '.join(sorted(IMAGE_EXTENSIONS))})"
+        )
+
+    data = target.read_bytes()
+    if len(data) <= max_bytes:
+        return data, fmt
+
+    try:
+        import io
+
+        from PIL import Image as PILImage
+    except ImportError:
+        raise PolicyError(
+            f"image is {len(data)} bytes; larger than the {max_bytes}-byte "
+            "limit (install the 'images' extra / pillow to auto-downscale)"
+        ) from None
+
+    orig = PILImage.open(io.BytesIO(data)).convert("RGB")
+    longest = max(orig.width, orig.height)
+    buf = io.BytesIO()
+    for target_side in (1600, 1280, 1024, 800, 640, 512, 400, 320, 256):
+        scale = min(1.0, target_side / longest)
+        w = max(1, int(orig.width * scale))
+        h = max(1, int(orig.height * scale))
+        im = orig if scale >= 1.0 else orig.resize((w, h))
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=82)
+        if buf.tell() <= max_bytes:
+            return buf.getvalue(), "jpeg"
+    # Smallest attempt, even if still marginally over.
+    return buf.getvalue(), "jpeg"
+
+
 def resolve_image(policy: Policy, path: str) -> Path:
     """Validate that ``path`` is a readable raster image inside the root.
 
@@ -239,6 +297,29 @@ def _resolve_under(base: Path, name: str) -> Path:
     if resolved != base and base not in resolved.parents:
         raise PolicyError(f"{name!r} is outside the inbox directory")
     return resolved
+
+
+def cleanup_inbox(inbox_dir: Path, ttl_days: int) -> int:
+    """Delete files in the inbox older than ``ttl_days`` (0 disables). Returns count.
+
+    Only loose files directly in the inbox are removed — never subdirectories.
+    Intended for a dedicated staging folder, never a folder with files you keep.
+    """
+    if ttl_days <= 0:
+        return 0
+    inbox = inbox_dir.expanduser()
+    if not inbox.is_dir():
+        return 0
+    cutoff = time.time() - ttl_days * 86400
+    removed = 0
+    for p in inbox.resolve().iterdir():
+        try:
+            if p.is_file() and p.stat().st_mtime < cutoff:
+                p.unlink()
+                removed += 1
+        except OSError:
+            pass
+    return removed
 
 
 def list_inbox(inbox_dir: Path, images_only: bool = True, limit: int = 20) -> str:

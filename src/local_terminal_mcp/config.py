@@ -72,9 +72,12 @@ class ServerConfig:
     # Local image generator: a command template with {prompt} and {output}.
     image_gen_cmd: str | None = None
     image_timeout: int = 300
-    # A trusted directory (e.g. ~/Downloads) the connector may import files
-    # FROM into the root. Read-only source; writes still go only to the root.
+    # A staging directory (ideally a folder inside the repo) the connector may
+    # import files FROM into the root. inbox_ttl_days > 0 auto-deletes files in
+    # it older than that many days (0 = never). Use a dedicated folder, never
+    # one holding files you keep.
     inbox_dir: str | None = None
+    inbox_ttl_days: int = 0
 
     @property
     def path_secret(self) -> str:
@@ -127,8 +130,10 @@ class ServerConfig:
             )
         if not self.policy.root.is_dir():
             raise ConfigError(f"root {self.policy.root} is not a directory")
-        if self.inbox_dir and not Path(self.inbox_dir).expanduser().is_dir():
-            raise ConfigError(f"inbox {self.inbox_dir} is not a directory")
+        if self.inbox_dir:
+            p = Path(self.inbox_dir).expanduser()
+            if p.exists() and not p.is_dir():
+                raise ConfigError(f"inbox {self.inbox_dir} is not a directory")
 
 
 def _parse_commands(raw: str | None) -> frozenset[str]:
@@ -166,4 +171,5 @@ def load_config() -> ServerConfig:
         image_gen_cmd=_env("IMAGE_GEN_CMD"),
         image_timeout=_env_int("IMAGE_TIMEOUT", 300),
         inbox_dir=_env("INBOX"),
+        inbox_ttl_days=_env_int("INBOX_TTL_DAYS", 0),
     )

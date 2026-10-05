@@ -87,3 +87,28 @@ def test_import_no_images(dirs) -> None:
     policy = Policy(root=root, allow_write=True)
     with pytest.raises(PolicyError, match="no images"):
         executor.import_recent_images(policy, inbox, "assets")
+
+
+def test_cleanup_inbox_removes_old_files(dirs) -> None:
+    root, inbox = dirs
+    old = inbox / "old.png"
+    new = inbox / "new.png"
+    old.write_bytes(PNG)
+    new.write_bytes(PNG)
+    # Make 'old' 8 days old.
+    eight_days = time.time() - 8 * 86400
+    os.utime(old, (eight_days, eight_days))
+
+    removed = executor.cleanup_inbox(inbox, ttl_days=7)
+    assert removed == 1
+    assert not old.exists()
+    assert new.exists()
+
+
+def test_cleanup_inbox_disabled(dirs) -> None:
+    root, inbox = dirs
+    old = inbox / "old.png"
+    old.write_bytes(PNG)
+    os.utime(old, (time.time() - 100 * 86400,) * 2)
+    assert executor.cleanup_inbox(inbox, ttl_days=0) == 0
+    assert old.exists()  # ttl 0 never deletes

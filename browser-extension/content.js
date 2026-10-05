@@ -9,7 +9,7 @@
   function getConfig() {
     return new Promise((resolve) => {
       chrome.storage.local.get(
-        { baseUrl: "http://localhost:3003", mcpPath: "", folder: "assets" },
+        { baseUrl: "http://localhost:3003", mcpPath: "", folder: "incoming" },
         resolve
       );
     });
@@ -53,7 +53,7 @@
     // Fetching the page's own blob: URL is same-origin and allowed here.
     const blob = await fetch(src).then((r) => r.blob());
     const ext = (blob.type.split("/")[1] || "png").replace("jpeg", "jpg");
-    const path = `${cfg.folder || "assets"}/${name}.${ext}`;
+    const path = `${cfg.folder || "incoming"}/${name}.${ext}`;
     const url = `${cfg.baseUrl}${cfg.mcpPath}/upload?path=${encodeURIComponent(
       path
     )}`;

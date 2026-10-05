@@ -1,7 +1,7 @@
 const fields = ["baseUrl", "mcpPath", "folder"];
 
 chrome.storage.local.get(
-  { baseUrl: "http://localhost:3003", mcpPath: "", folder: "assets" },
+  { baseUrl: "http://localhost:3003", mcpPath: "", folder: "incoming" },
   (cfg) => {
     for (const f of fields) document.getElementById(f).value = cfg[f] || "";
   }
