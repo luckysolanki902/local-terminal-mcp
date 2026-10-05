@@ -11,6 +11,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from .allowlist import DynamicAllowlist
+from .approvals import Approver, Decision
 from .policy import Policy, PolicyError
 
 
@@ -21,12 +23,47 @@ def _truncate(text: str, limit: int) -> str:
     return clipped + f"\n\n[... output truncated to {limit} bytes ...]"
 
 
-def run_command(policy: Policy, command: str, cwd: str = "") -> str:
-    """Run a single allowlisted command without a shell and return its output.
+def _authorize(
+    policy: Policy,
+    argv: list[str],
+    command: str,
+    store: DynamicAllowlist | None,
+    approver: Approver | None,
+) -> None:
+    """Decide whether ``argv`` may run, asking the approver if needed."""
+    program = policy.program_of(argv)
+    if policy.is_allowed_program(program):
+        return
+    if store is not None and store.contains(program):
+        return
+    if approver is None:
+        raise PolicyError(f"command {program!r} is not on the allowlist")
 
-    ``cwd`` is optional and, if given, must resolve inside the policy root.
+    decision = approver.request(program, command)
+    if decision is Decision.DENY:
+        raise PolicyError(
+            f"command {program!r} is not on the allowlist (approval denied)"
+        )
+    if decision is Decision.ALWAYS and store is not None:
+        store.add(program)
+    # ONCE or ALWAYS: proceed with this run.
+
+
+def run_command(
+    policy: Policy,
+    command: str,
+    cwd: str = "",
+    store: DynamicAllowlist | None = None,
+    approver: Approver | None = None,
+) -> str:
+    """Run a single command without a shell and return its output.
+
+    The program must be on the static allowlist, on the persistent dynamic
+    allowlist (``store``), or approved via ``approver``. ``cwd`` is optional
+    and, if given, must resolve inside the policy root.
     """
-    argv = policy.parse_command(command)
+    argv = policy.parse_structure(command)
+    _authorize(policy, argv, command, store, approver)
     workdir = policy.resolve_path(cwd) if cwd else policy.root
     if not workdir.is_dir():
         raise PolicyError(f"working directory {cwd!r} is not a directory")

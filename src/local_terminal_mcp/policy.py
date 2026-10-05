@@ -84,11 +84,12 @@ class Policy:
 
     # -- command handling --------------------------------------------------
 
-    def parse_command(self, command: str) -> list[str]:
-        """Validate ``command`` and return its argv for shell-free execution.
+    def parse_structure(self, command: str) -> list[str]:
+        """Validate the *structure* of ``command`` and return its argv.
 
-        Raises :class:`PolicyError` if the command is empty, contains shell
-        operators or substitution, or if its program is not on the allowlist.
+        Enforces: non-empty, no command substitution, no shell operators
+        (one program per call). Does **not** check the allowlist — that is a
+        separate authorization step so an approval layer can sit in between.
         """
         if not command or not command.strip():
             raise PolicyError("empty command")
@@ -119,10 +120,26 @@ class Policy:
                     "run one command per call"
                 )
 
-        program = os.path.basename(tokens[0])
-        if program not in self.allowed_commands:
-            raise PolicyError(f"command {program!r} is not on the allowlist")
+        return tokens
 
+    def program_of(self, argv: list[str]) -> str:
+        """The program name (basename) that ``argv`` would execute."""
+        return os.path.basename(argv[0])
+
+    def is_allowed_program(self, program: str) -> bool:
+        """Whether ``program`` is on the static (configured) allowlist."""
+        return program in self.allowed_commands
+
+    def parse_command(self, command: str) -> list[str]:
+        """Validate ``command`` and return its argv for shell-free execution.
+
+        Raises :class:`PolicyError` if the command is empty, contains shell
+        operators or substitution, or if its program is not on the allowlist.
+        """
+        tokens = self.parse_structure(command)
+        program = self.program_of(tokens)
+        if not self.is_allowed_program(program):
+            raise PolicyError(f"command {program!r} is not on the allowlist")
         return tokens
 
     # -- path handling -----------------------------------------------------

@@ -16,8 +16,12 @@ request:
 - **Path containment** — paths are fully resolved (symlinks, `..`) and must stay
   inside the configured root.
 - **Writes are opt-in** — disabled unless started with `--allow-write`.
-- **Fail closed** — HTTP transport refuses to start without a bearer token of at
-  least 16 characters.
+- **Approvals are local** — with `--approval`, a non-allowlisted command is run
+  only after a human on the server machine approves it (once, or always →
+  persisted to the JSON allowlist). A remote caller can request but never
+  self-approve.
+- **Fail closed** — HTTP transport refuses to start without a credential
+  (bearer token ≥16 chars, or a ≥24-char secret path segment).
 
 ## Deploying safely over the internet
 

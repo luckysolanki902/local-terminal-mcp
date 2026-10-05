@@ -306,7 +306,11 @@ flags win over environment variables.
 | `--auth-token` | `LTMCP_AUTH_TOKEN` | — | Bearer token (required for `bearer` mode) |
 | `--mcp-path` | `LTMCP_MCP_PATH` | `/mcp` | Path the MCP endpoint is served at; for `path` auth, end it with a long random segment |
 | `--allowed-hosts` | `LTMCP_ALLOWED_HOSTS` | any | Comma-separated `Host` header allowlist (e.g. your tunnel hostname) |
-| `--allow-commands` | `LTMCP_ALLOW_COMMANDS` | read-only set | Comma-separated allowlist |
+| `--allow-commands` | `LTMCP_ALLOW_COMMANDS` | read-only set | Comma-separated static allowlist |
+| `--approval` | `LTMCP_APPROVAL_MODE` | `none` | Ask before running non-allowlisted commands: `none`/`tty`/`file` |
+| `--approvals-dir` | `LTMCP_APPROVALS_DIR` | — | Directory to coordinate approvals in `file` mode |
+| `--approval-timeout` | `LTMCP_APPROVAL_TIMEOUT` | `60` | Seconds to wait for a decision |
+| `--allowlist-file` | `LTMCP_ALLOWLIST_FILE` | — | JSON file that "always allow" appends to |
 | `--allow-write` | `LTMCP_ALLOW_WRITE` | `false` | Enable `write_file` |
 | `--max-output-bytes` | `LTMCP_MAX_OUTPUT_BYTES` | `100000` | Output truncation limit |
 | `--timeout` | `LTMCP_TIMEOUT` | `120` | Per-command timeout (seconds) |
@@ -319,6 +323,46 @@ flags win over environment variables.
 | `read_file` | always | Read a file inside the root. |
 | `list_directory` | always | List a directory inside the root. |
 | `write_file` | `--allow-write` | Write a file inside the root. |
+
+## Approvals & the dynamic allowlist (Claude Code–style)
+
+By default, a command whose program isn't on the static allowlist is simply
+refused. Enable `--approval` to be *asked* instead — the same model as Claude
+Code:
+
+- **deny** → the command is refused.
+- **once** → it runs this time only; nothing is saved.
+- **always** → it runs **and** the program is appended to a JSON allowlist
+  (`--allowlist-file`), so it's permitted without asking next time.
+
+The decision is always made **locally**, on the machine the server runs on — a
+remote caller (ChatGPT) can only *request* a command.
+
+**`tty` mode** (server running in a terminal): you're prompted right there.
+
+```bash
+local-terminal-mcp --root /path/to/repo \
+  --approval tty --allowlist-file ~/.ltmcp-allow.json
+```
+
+**`file` mode** (server backgrounded, e.g. behind a tunnel): the request is
+queued and you decide with the `approve`/`deny` CLI.
+
+```bash
+# server
+local-terminal-mcp --transport http --port 3003 --root /path/to/repo \
+  --auth path --mcp-path "/mcp/$SECRET" \
+  --approval file --approvals-dir ~/.ltmcp/approvals \
+  --allowlist-file ~/.ltmcp/allow.json
+
+# in another terminal, when ChatGPT tries something new:
+local-terminal-mcp approvals --approvals-dir ~/.ltmcp/approvals   # list pending
+local-terminal-mcp approve <id> --always --approvals-dir ~/.ltmcp/approvals
+local-terminal-mcp deny <id> --approvals-dir ~/.ltmcp/approvals
+```
+
+> ⚠️ Approving a program like `python3` grants it broad power (it's an
+> interpreter). Approve deliberately — "always allow" is persistent.
 
 ## Development
 
@@ -334,7 +378,9 @@ The security-critical logic lives in `policy.py` and is covered by
 ## FAQ
 
 **Can it run any command?** No — only programs on the allowlist, one at a time,
-with no shell. Expand the allowlist with `--allow-commands` if you need more.
+with no shell. Expand the static allowlist with `--allow-commands`, or turn on
+`--approval` to be asked (once / always) when a new program is requested, Claude
+Code–style — see [Approvals](#approvals--the-dynamic-allowlist-claude-codestyle).
 
 **How is the HTTP endpoint protected?** With a credential, never obscurity of
 the tunnel hostname alone. Use `bearer` auth (header token) for clients that

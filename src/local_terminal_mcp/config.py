@@ -61,6 +61,14 @@ class ServerConfig:
     auth_token: str | None = None
     mcp_path: str = "/mcp"
     allowed_hosts: list[str] = field(default_factory=list)
+    # Human-in-the-loop approval for commands not on the static allowlist.
+    #   approval_mode: "none" (deny, default), "tty" (prompt on the server
+    #   terminal), or "file" (coordinate via approvals_dir + the approve CLI).
+    approval_mode: str = "none"
+    approvals_dir: str | None = None
+    approval_timeout: int = 60
+    # Persistent JSON allowlist that "always allow" appends to.
+    allowlist_file: str | None = None
 
     @property
     def path_secret(self) -> str:
@@ -102,6 +110,15 @@ class ServerConfig:
 
         if self.auth_token is not None and len(self.auth_token) < 16:
             raise ConfigError("auth token must be at least 16 characters")
+        if self.approval_mode not in {"none", "tty", "file"}:
+            raise ConfigError(
+                "approval mode must be 'none', 'tty' or 'file', "
+                f"got {self.approval_mode!r}"
+            )
+        if self.approval_mode == "file" and not self.approvals_dir:
+            raise ConfigError(
+                "approval mode 'file' requires --approvals-dir"
+            )
         if not self.policy.root.is_dir():
             raise ConfigError(f"root {self.policy.root} is not a directory")
 
@@ -133,4 +150,8 @@ def load_config() -> ServerConfig:
         allowed_hosts=[
             h.strip() for h in (_env("ALLOWED_HOSTS") or "").split(",") if h.strip()
         ],
+        approval_mode=_env("APPROVAL_MODE", "none") or "none",
+        approvals_dir=_env("APPROVALS_DIR"),
+        approval_timeout=_env_int("APPROVAL_TIMEOUT", 60),
+        allowlist_file=_env("ALLOWLIST_FILE"),
     )

@@ -11,14 +11,41 @@ from __future__ import annotations
 from mcp.server.mcpserver import MCPServer
 
 from . import __version__, executor
+from .allowlist import DynamicAllowlist
+from .approvals import (
+    Approver,
+    AutoDenyApprover,
+    FileApprovalQueue,
+    TTYApprover,
+)
 from .config import ServerConfig
 from .policy import PolicyError
+
+
+def build_store(config: ServerConfig) -> DynamicAllowlist | None:
+    """The persistent allowlist that 'always allow' appends to, if configured."""
+    if config.allowlist_file:
+        return DynamicAllowlist(config.allowlist_file)
+    return None
+
+
+def build_approver(config: ServerConfig) -> Approver:
+    """Build the approver for commands not on the allowlist."""
+    if config.approval_mode == "tty":
+        return TTYApprover()
+    if config.approval_mode == "file":
+        assert config.approvals_dir is not None  # ensured by config.validate()
+        return FileApprovalQueue(config.approvals_dir, config.approval_timeout)
+    return AutoDenyApprover()
 
 
 def build_server(config: ServerConfig) -> MCPServer:
     """Construct a configured :class:`MCPServer` with tools registered."""
     policy = config.policy
     mcp = MCPServer("local-terminal-mcp", version=__version__)
+
+    store = build_store(config)
+    approver = build_approver(config) if config.approval_mode != "none" else None
 
     allowed = ", ".join(sorted(policy.allowed_commands))
 
@@ -33,7 +60,9 @@ def build_server(config: ServerConfig) -> MCPServer:
     )
     def run_command(command: str, cwd: str = "") -> str:
         try:
-            return executor.run_command(policy, command, cwd)
+            return executor.run_command(
+                policy, command, cwd, store=store, approver=approver
+            )
         except PolicyError as exc:
             return f"refused: {exc}"
 

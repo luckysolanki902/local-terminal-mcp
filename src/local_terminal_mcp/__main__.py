@@ -67,6 +67,32 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-output-bytes", type=int, help="Output truncation limit.")
     parser.add_argument("--timeout", type=int, help="Per-command timeout in seconds.")
+    parser.add_argument(
+        "--approval",
+        dest="approval_mode",
+        choices=["none", "tty", "file"],
+        help=(
+            "Ask to approve commands not on the allowlist: 'none' (deny, "
+            "default), 'tty' (prompt on this terminal), or 'file' (approve via "
+            "the 'approve'/'deny' subcommands, for a backgrounded server)."
+        ),
+    )
+    parser.add_argument(
+        "--approvals-dir",
+        help="Directory used to coordinate approvals in 'file' mode.",
+    )
+    parser.add_argument(
+        "--approval-timeout",
+        type=int,
+        help="Seconds to wait for an approval decision (default: 60).",
+    )
+    parser.add_argument(
+        "--allowlist-file",
+        help=(
+            "JSON file of always-allowed programs; 'always allow' decisions "
+            "are appended here and persist across restarts."
+        ),
+    )
     return parser
 
 
@@ -104,11 +130,79 @@ def _apply_overrides(args: argparse.Namespace):
         config.allowed_hosts = [
             h.strip() for h in args.allowed_hosts.split(",") if h.strip()
         ]
+    if args.approval_mode:
+        config.approval_mode = args.approval_mode
+    if args.approvals_dir:
+        config.approvals_dir = args.approvals_dir
+    if args.approval_timeout:
+        config.approval_timeout = args.approval_timeout
+    if args.allowlist_file:
+        config.allowlist_file = args.allowlist_file
     return config
 
 
+_SUBCOMMANDS = {"approvals", "approve", "deny"}
+
+
+def _approvals_cli(argv: list[str]) -> int:
+    """Handle the local approve/deny/approvals subcommands."""
+    import os
+
+    from .approvals import Decision, FileApprovalQueue
+
+    parser = argparse.ArgumentParser(prog="local-terminal-mcp")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    for name in ("approvals", "approve", "deny"):
+        p = sub.add_parser(name)
+        p.add_argument(
+            "--approvals-dir",
+            default=os.environ.get("LTMCP_APPROVALS_DIR"),
+            help="Directory the server uses for approvals.",
+        )
+        if name in ("approve", "deny"):
+            p.add_argument("id", help="Pending request id (see 'approvals').")
+        if name == "approve":
+            p.add_argument(
+                "--always",
+                action="store_true",
+                help="Also add the program to the JSON allowlist.",
+            )
+    args = parser.parse_args(argv)
+
+    if not args.approvals_dir:
+        print(
+            "error: set --approvals-dir or LTMCP_APPROVALS_DIR", file=sys.stderr
+        )
+        return 2
+
+    queue = FileApprovalQueue(args.approvals_dir)
+
+    if args.cmd == "approvals":
+        pending = queue.list_pending()
+        if not pending:
+            print("no pending approvals")
+            return 0
+        for item in pending:
+            print(f"{item.id}  {item.program:<12}  {item.command}")
+        return 0
+
+    if args.cmd == "approve":
+        queue.decide(args.id, Decision.ALWAYS if args.always else Decision.ONCE)
+        print(f"approved {args.id} ({'always' if args.always else 'once'})")
+        return 0
+
+    # deny
+    queue.decide(args.id, Decision.DENY)
+    print(f"denied {args.id}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+    raw = list(sys.argv[1:] if argv is None else argv)
+    if raw and raw[0] in _SUBCOMMANDS:
+        return _approvals_cli(raw)
+
+    args = _build_parser().parse_args(raw)
     try:
         config = _apply_overrides(args)
         config.validate()
