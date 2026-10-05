@@ -1,0 +1,19 @@
+# Example cloudflared named-tunnel config.
+# Place at ~/.cloudflared/config.yml and adjust the hostname + credentials.
+#
+# Prerequisites:
+#   cloudflared tunnel login
+#   cloudflared tunnel create lucky-tunnel
+#   cloudflared tunnel route dns lucky-tunnel mcp.yourdomain.com
+#
+# Then run:  cloudflared tunnel run lucky-tunnel
+
+tunnel: lucky-tunnel
+credentials-file: /Users/you/.cloudflared/<tunnel-id>.json
+
+ingress:
+  # Forward the public hostname to the local MCP server.
+  - hostname: mcp.yourdomain.com
+    service: http://localhost:8000
+  # Everything else 404s.
+  - service: http_status:404
