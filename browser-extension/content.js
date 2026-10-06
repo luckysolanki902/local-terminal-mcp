@@ -149,6 +149,11 @@
 
   addButton();
 
+  // Let the popup trigger a manual save.
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg && msg.type === "saveNow") saveAll();
+  });
+
   // ChatGPT is a SPA; keep the button present and watch for new images.
   let debounce;
   new MutationObserver(() => {

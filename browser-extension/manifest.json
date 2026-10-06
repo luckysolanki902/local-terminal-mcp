@@ -3,7 +3,7 @@
   "name": "ChatGPT → Local MCP Image Saver",
   "version": "0.1.0",
   "description": "Save ChatGPT-generated images straight into your local repo via local-terminal-mcp.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "activeTab"],
   "host_permissions": [
     "http://localhost/*",
     "http://127.0.0.1/*",

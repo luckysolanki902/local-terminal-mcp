@@ -3,35 +3,156 @@
   <head>
     <meta charset="utf-8" />
     <style>
-      body { font: 13px system-ui; width: 300px; padding: 12px; }
-      label { display: block; margin: 10px 0 4px; font-weight: 600; }
-      input { width: 100%; box-sizing: border-box; padding: 6px; }
-      button { margin-top: 12px; width: 100%; padding: 8px; cursor: pointer; }
-      .hint { color: #666; font-size: 11px; margin-top: 2px; }
-      #status { margin-top: 8px; color: #166534; }
+      :root {
+        --bg: #ffffff;
+        --fg: #0f1115;
+        --muted: #6b7280;
+        --border: #e6e8eb;
+        --input-bg: #f7f8f9;
+        --accent: #10a37f;
+        --accent-weak: rgba(16, 163, 127, 0.12);
+        --danger: #ef4444;
+        --radius: 12px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1c1d20;
+          --fg: #ececf1;
+          --muted: #9aa0a6;
+          --border: #313338;
+          --input-bg: #26272b;
+          --accent: #19c196;
+          --accent-weak: rgba(25, 193, 150, 0.16);
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        width: 320px;
+        background: var(--bg);
+        color: var(--fg);
+        font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { padding: 16px; }
+
+      header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+      .logo {
+        width: 30px; height: 30px; border-radius: 9px;
+        background: var(--accent-weak);
+        display: grid; place-items: center;
+        font-size: 16px;
+      }
+      .title { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
+      .sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+      /* status dot */
+      .status { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+      .dot.ok { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-weak); }
+      .dot.bad { background: var(--danger); }
+
+      /* the main auto-save switch card */
+      .switch-card {
+        display: flex; align-items: center; gap: 12px;
+        padding: 12px 14px; margin-bottom: 14px;
+        border: 1px solid var(--border); border-radius: var(--radius);
+        background: var(--input-bg);
+      }
+      .switch-card .t { font-weight: 600; }
+      .switch-card .d { font-size: 11px; color: var(--muted); margin-top: 2px; }
+      .switch-card .meta { flex: 1; min-width: 0; }
+
+      /* toggle */
+      .toggle { position: relative; display: inline-block; width: 44px; height: 26px; flex: none; }
+      .toggle input { opacity: 0; width: 0; height: 0; }
+      .track {
+        position: absolute; inset: 0; cursor: pointer;
+        background: #cfd3d8; border-radius: 999px; transition: background .18s ease;
+      }
+      @media (prefers-color-scheme: dark) { .track { background: #3a3d42; } }
+      .track::before {
+        content: ""; position: absolute; height: 20px; width: 20px; left: 3px; top: 3px;
+        background: #fff; border-radius: 50%; transition: transform .18s ease;
+        box-shadow: 0 1px 3px rgba(0,0,0,.25);
+      }
+      .toggle input:checked + .track { background: var(--accent); }
+      .toggle input:checked + .track::before { transform: translateX(18px); }
+
+      /* fields */
+      .field { margin-bottom: 12px; }
+      .field label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 5px; }
+      .field input {
+        width: 100%; padding: 9px 11px; font-size: 13px;
+        color: var(--fg); background: var(--input-bg);
+        border: 1px solid var(--border); border-radius: 9px; outline: none;
+        transition: border-color .15s ease, box-shadow .15s ease;
+      }
+      .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-weak); }
+
+      .row { display: flex; gap: 8px; }
+      .row .field { flex: 1; }
+
+      button.primary {
+        width: 100%; padding: 10px; margin-top: 2px;
+        font: 600 13px system-ui; color: #fff; background: var(--accent);
+        border: none; border-radius: 10px; cursor: pointer; transition: opacity .15s ease;
+      }
+      button.primary:hover { opacity: .92; }
+      button.ghost {
+        width: 100%; padding: 9px; margin-top: 8px;
+        font: 600 12px system-ui; color: var(--fg); background: transparent;
+        border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
+      }
+      button.ghost:hover { background: var(--input-bg); }
+
+      #saved { text-align: center; font-size: 11px; color: var(--accent); height: 14px; margin-top: 8px; }
     </style>
   </head>
   <body>
-    <h3 style="margin:0 0 4px">MCP Image Saver</h3>
-    <label>Server base URL</label>
-    <input id="baseUrl" placeholder="http://localhost:3003" />
-    <div class="hint">Your local-terminal-mcp server (http://localhost:PORT).</div>
+    <div class="wrap">
+      <header>
+        <div class="logo">🖼️</div>
+        <div>
+          <div class="title">Image Saver</div>
+          <div class="sub">ChatGPT → local repo</div>
+        </div>
+        <div class="status"><span class="dot" id="dot"></span><span id="statusText">…</span></div>
+      </header>
 
-    <label>MCP secret path</label>
-    <input id="mcpPath" placeholder="/mcp/your-secret" />
-    <div class="hint">The same path your ChatGPT connector uses, e.g. /mcp/&lt;secret&gt;.</div>
+      <div class="switch-card">
+        <div class="meta">
+          <div class="t">Auto-save</div>
+          <div class="d">Save new generated images instantly.</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="autoSave" />
+          <span class="track"></span>
+        </label>
+      </div>
 
-    <label>Target folder (in the repo)</label>
-    <input id="folder" placeholder="incoming" />
+      <div class="field">
+        <label>Server base URL</label>
+        <input id="baseUrl" placeholder="http://localhost:3003" />
+      </div>
+      <div class="field">
+        <label>MCP secret path</label>
+        <input id="mcpPath" placeholder="/mcp/your-secret" />
+      </div>
+      <div class="field">
+        <label>Target folder</label>
+        <input id="folder" placeholder="gpt-images" />
+      </div>
 
-    <label style="display:flex;align-items:center;gap:8px;margin-top:12px">
-      <input type="checkbox" id="autoSave" style="width:auto" />
-      Auto-save new generated images (no clicks)
-    </label>
-    <div class="hint">When on, every new image ChatGPT generates is uploaded automatically.</div>
-
-    <button id="save">Save settings</button>
-    <div id="status"></div>
+      <button class="primary" id="save">Save settings</button>
+      <button class="ghost" id="saveNow">Save images on this page now</button>
+      <div id="saved"></div>
+    </div>
     <script src="popup.js"></script>
   </body>
 </html>
