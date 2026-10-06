@@ -15,6 +15,8 @@ API/agent tokens.
 > network), but you are responsible for how you configure and expose it. Read
 > [Security model](#security-model) before exposing it to the internet.
 
+> 🚀 **Just want to get going?** Follow the [install & setup checklist](INSTALL.md).
+
 ---
 
 ## Table of contents
