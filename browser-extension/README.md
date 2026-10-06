@@ -42,10 +42,20 @@ ChatGPT renders image (blob)  →  extension fetches the bytes
 
 ## Use
 
-On any `chatgpt.com` page with generated images, click the floating
+**Manual:** on any `chatgpt.com` page with generated images, click the floating
 **"⬇ Save images → repo"** button (bottom-right). Every generated image on the
 page is saved into `<target folder>/gpt-<timestamp>-N.png` in your repo, at full
 resolution. A toast reports how many were saved.
+
+**Auto-save (hands-free):** tick **"Auto-save new generated images"** in the
+popup. From then on, every image ChatGPT generates is uploaded to your repo
+automatically as it appears — no button clicks, and no MCP involvement needed
+(the extension watches the page itself; the server just receives the uploads).
+
+> **Install is one-time.** "Load unpacked" only has to be done once — after
+> that the extension stays active across restarts. (Auto-save then makes saving
+> fully hands-free.) Only a Chrome Web Store listing would turn the initial load
+> into a one-click install.
 
 ## Security
 

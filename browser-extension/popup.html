@@ -24,6 +24,12 @@
     <label>Target folder (in the repo)</label>
     <input id="folder" placeholder="incoming" />
 
+    <label style="display:flex;align-items:center;gap:8px;margin-top:12px">
+      <input type="checkbox" id="autoSave" style="width:auto" />
+      Auto-save new generated images (no clicks)
+    </label>
+    <div class="hint">When on, every new image ChatGPT generates is uploaded automatically.</div>
+
     <button id="save">Save settings</button>
     <div id="status"></div>
     <script src="popup.js"></script>
