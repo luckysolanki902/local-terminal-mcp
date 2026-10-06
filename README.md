@@ -67,6 +67,14 @@ turned off and expose only read access.
   `python gen_sprite.py --seed 42 --out sprites/hero.png`, and `read_file` /
   `list_directory` to inspect the results. (`--allow-write` is only needed if
   the generator writes into the root; keep it off for read-only analysis.)
+- **Save images ChatGPT makes with its *own* image skill into your repo.** A
+  small [browser extension](browser-extension/) auto-saves every image ChatGPT
+  generates straight into your repo (full quality, hands-free) — the one thing a
+  plain connector can't do. See
+  [Saving ChatGPT's own generated images](#saving-chatgpts-own-generated-images).
+- **Let ChatGPT *see* images in your repo.** `read_image` returns a picture as
+  an image (auto-downscaled if large), so ChatGPT can critique art, read text
+  from a screenshot/resume, or compare assets.
 
 > You decide exactly which programs are reachable. The default allowlist is
 > read-only; everything beyond it is opt-in.
@@ -387,12 +395,21 @@ ChatGPT's native image skill renders images **only in the browser** — the mode
 and the MCP server never receive the bytes (no URL either), so they can't be
 saved through a normal connector tool. There are two working routes:
 
-**Route 1 — browser extension (recommended; full quality, one click).** The
+**Route 1 — browser extension (recommended; full quality, hands-free).** The
 [browser extension](browser-extension/) reads the rendered image from the page
 and POSTs it to the server's `/upload` endpoint (secret-gated, write-mode,
-path-contained, CORS-restricted to ChatGPT), writing it straight into your repo.
-Point it at a staging folder like `incoming/`. Setup:
-[browser-extension/README.md](browser-extension/README.md).
+path-contained, CORS-restricted to ChatGPT), writing it straight into your repo
+(e.g. a staging folder like `incoming/`). Loading it is a **one-time** step;
+after that, turn on **auto-save** and every new image ChatGPT generates is
+uploaded automatically as it appears — no clicks, and no MCP→browser channel is
+needed (the extension watches the page itself; the server just receives the
+uploads). Setup: [browser-extension/README.md](browser-extension/README.md).
+
+> Why an extension at all? The model can't pass image bytes to a connector tool
+> (it won't, even for a tiny payload), the code-interpreter sandbox has no
+> network, and the page's CSP blocks direct posts to localhost — so the browser
+> is the only place that can both *see* the generated image and *reach* your
+> local server. An extension is the clean form of that bridge.
 
 **Route 2 — download + import (no install).** Use ChatGPT's own download button
 (saves the full-res image to your Downloads folder), then import it with the
