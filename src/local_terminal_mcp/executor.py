@@ -288,6 +288,33 @@ def generate_image(
     return f"generated image at {target} ({target.stat().st_size} bytes)"
 
 
+def move_file(policy: Policy, src: str, dest: str) -> str:
+    """Move/rename a file or directory within the root (write mode)."""
+    policy.require_write()
+    s = policy.resolve_path(src)
+    if not s.exists():
+        raise PolicyError(f"{src!r} does not exist")
+    t = policy.resolve_path(dest)
+    t.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(s), str(t))
+    return f"moved {s} -> {t}"
+
+
+def copy_file(policy: Policy, src: str, dest: str) -> str:
+    """Copy a file (or directory tree) within the root (write mode)."""
+    policy.require_write()
+    s = policy.resolve_path(src)
+    if not s.exists():
+        raise PolicyError(f"{src!r} does not exist")
+    t = policy.resolve_path(dest)
+    t.parent.mkdir(parents=True, exist_ok=True)
+    if s.is_dir():
+        shutil.copytree(s, t, dirs_exist_ok=True)
+    else:
+        shutil.copy2(s, t)
+    return f"copied {s} -> {t}"
+
+
 def _resolve_under(base: Path, name: str) -> Path:
     """Resolve ``name`` and guarantee it stays inside ``base`` (e.g. the inbox)."""
     candidate = Path(name)

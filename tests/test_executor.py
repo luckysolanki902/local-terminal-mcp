@@ -71,3 +71,40 @@ def test_list_directory(repo: Path) -> None:
     listing = executor.list_directory(policy, ".")
     assert "sub/" in listing
     assert "a.txt" in listing
+
+
+def test_move_file(repo) -> None:
+    from local_terminal_mcp import executor
+    policy = Policy(root=repo, allow_write=True)
+    executor.move_file(policy, "a.txt", "sub/moved.txt")
+    assert (repo / "sub" / "moved.txt").read_text() == "hello"
+    assert not (repo / "a.txt").exists()
+
+
+def test_copy_file(repo) -> None:
+    from local_terminal_mcp import executor
+    policy = Policy(root=repo, allow_write=True)
+    executor.copy_file(policy, "a.txt", "copy.txt")
+    assert (repo / "copy.txt").read_text() == "hello"
+    assert (repo / "a.txt").exists()
+
+
+def test_move_requires_write(repo) -> None:
+    from local_terminal_mcp import executor
+    policy = Policy(root=repo, allow_write=False)
+    with pytest.raises(PolicyError, match="write operations are disabled"):
+        executor.move_file(policy, "a.txt", "b.txt")
+
+
+def test_move_cannot_escape_root(repo) -> None:
+    from local_terminal_mcp import executor
+    policy = Policy(root=repo, allow_write=True)
+    with pytest.raises(PolicyError):
+        executor.move_file(policy, "a.txt", "../escape.txt")
+
+
+def test_move_missing_src(repo) -> None:
+    from local_terminal_mcp import executor
+    policy = Policy(root=repo, allow_write=True)
+    with pytest.raises(PolicyError, match="does not exist"):
+        executor.move_file(policy, "nope.txt", "x.txt")

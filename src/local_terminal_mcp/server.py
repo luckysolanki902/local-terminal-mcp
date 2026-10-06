@@ -204,6 +204,30 @@ def build_server(config: ServerConfig) -> MCPServer:
             except PolicyError as exc:
                 return f"refused: {exc}"
 
+        @mcp.tool(
+            description=(
+                "Move or rename a file/directory within the project root "
+                "(both source and destination are confined to the root)."
+            )
+        )
+        def move_file(src: str, dest: str) -> str:
+            try:
+                return executor.move_file(policy, src, dest)
+            except PolicyError as exc:
+                return f"refused: {exc}"
+
+        @mcp.tool(
+            description=(
+                "Copy a file or directory within the project root (both source "
+                "and destination are confined to the root)."
+            )
+        )
+        def copy_file(src: str, dest: str) -> str:
+            try:
+                return executor.copy_file(policy, src, dest)
+            except PolicyError as exc:
+                return f"refused: {exc}"
+
     if config.inbox_dir and policy.allow_write:
         inbox = Path(config.inbox_dir).expanduser()
         inbox.mkdir(parents=True, exist_ok=True)

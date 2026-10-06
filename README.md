@@ -343,6 +343,8 @@ flags win over environment variables.
 | `close_terminal` | always | Close a session. |
 | `write_file` | `--allow-write` | Write a UTF-8 text file inside the root. |
 | `write_file_base64` | `--allow-write` | Write a **binary** file (e.g. a PNG) from base64 — for saving generated images and other assets. |
+| `move_file` | `--allow-write` | Move/rename a file or directory within the root. |
+| `copy_file` | `--allow-write` | Copy a file or directory within the root. |
 | `generate_image` | `--image-gen-cmd` | Generate an image from a prompt using a **local** generator, saved into the root. |
 | `list_inbox` | `--inbox` | List recent files (images) in a trusted inbox folder (e.g. Downloads). |
 | `import_recent_images` | `--inbox` + `--allow-write` | Import the most recent image(s) from the inbox into the repo. |
