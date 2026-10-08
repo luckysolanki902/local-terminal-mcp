@@ -46,7 +46,20 @@ def build_approver(config: ServerConfig) -> Approver:
 def build_server(config: ServerConfig) -> MCPServer:
     """Construct a configured :class:`MCPServer` with tools registered."""
     policy = config.policy
-    mcp = MCPServer("local-terminal-mcp", version=__version__)
+    instructions = None
+    if config.inbox_dir and policy.allow_write:
+        instructions = (
+            "For NEW art (sprites, icons, illustrations, textures): generate it "
+            "with your own native image-generation tool, not by hand-writing or "
+            "deriving SVG/pixel data in code. A rendered image is auto-saved "
+            "into this project's import inbox; call list_inbox to see it, then "
+            "import_recent_images or import_file to bring it into the repo. "
+            "Only fall back to writing image data yourself if image generation "
+            "is unavailable."
+        )
+    mcp = MCPServer(
+        "local-terminal-mcp", version=__version__, instructions=instructions
+    )
 
     store = build_store(config)
     approver = build_approver(config) if config.approval_mode != "none" else None
@@ -253,8 +266,10 @@ def build_server(config: ServerConfig) -> MCPServer:
         @mcp.tool(
             description=(
                 "Import the most recent image(s) from the inbox into a folder "
-                "inside the repo. Great for saving images you just downloaded "
-                "from ChatGPT. Set move=true to move instead of copy."
+                "inside the repo. Use this right after rendering new art with "
+                "your own image-generation tool (it lands in the inbox "
+                "automatically) or after the user downloads an image from "
+                "ChatGPT. Set move=true to move instead of copy."
             )
         )
         def import_recent_images(
