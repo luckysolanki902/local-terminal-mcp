@@ -103,6 +103,34 @@ def test_read_image_payload_downscales_large(tmp_path: Path) -> None:
     assert (tmp_path / "big.png").stat().st_size > 1_000_000
 
 
+# -- describe_image (text companion for the dual return) -------------------
+
+
+def test_describe_image_small(tmp_path: Path) -> None:
+    (tmp_path / "a.png").write_bytes(PNG_1X1)
+    policy = Policy(root=tmp_path)
+    data, fmt = executor.read_image_payload(policy, "a.png", max_bytes=100_000)
+    text = executor.describe_image(policy, "a.png", data, fmt)
+    assert "image: a.png" in text
+    assert f"bytes on disk: {len(PNG_1X1)}" in text
+    assert "downscaled" not in text
+    assert "1x1" in text
+
+
+def test_describe_image_downscaled_notes_it(tmp_path: Path) -> None:
+    import os
+
+    from PIL import Image as PILImage
+
+    big = PILImage.frombytes("RGB", (2000, 2000), os.urandom(2000 * 2000 * 3))
+    big.save(tmp_path / "big.png")
+    policy = Policy(root=tmp_path)
+    data, fmt = executor.read_image_payload(policy, "big.png", max_bytes=500_000)
+    text = executor.describe_image(policy, "big.png", data, fmt)
+    assert "downscaled" in text
+    assert "original 2000x2000" in text
+
+
 # -- generator argv building -----------------------------------------------
 
 

@@ -49,6 +49,43 @@ async def test_stdio_roundtrip(tmp_path: Path) -> None:
             assert "refused" in _text(refused)
 
 
+async def test_stdio_apply_patch_roundtrip(tmp_path: Path) -> None:
+    """Read a file, patch it through the real tool surface, re-read to confirm."""
+    (tmp_path / "hello.py").write_text("def hi():\n    return 1\n")
+
+    params = StdioServerParameters(
+        command=sys.executable,
+        args=[
+            "-m",
+            "local_terminal_mcp",
+            "--root",
+            str(tmp_path),
+            "--allow-write",
+        ],
+    )
+
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+
+            tools = {t.name for t in (await session.list_tools()).tools}
+            assert "apply_patch" in tools
+
+            patch = (
+                "*** Begin Patch\n"
+                "*** Update File: hello.py\n"
+                "@@ def hi():\n"
+                "-    return 1\n"
+                "+    return 2\n"
+                "*** End Patch\n"
+            )
+            res = await session.call_tool("apply_patch", {"input": patch})
+            assert "1 modified" in _text(res)
+
+            reread = await session.call_tool("read_file", {"path": "hello.py"})
+            assert "return 2" in _text(reread)
+
+
 async def test_stdio_session_cd_persists(tmp_path: Path) -> None:
     """Open a terminal, cd into a subdir, and have it persist across calls."""
     (tmp_path / "sub").mkdir()

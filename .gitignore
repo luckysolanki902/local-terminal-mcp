@@ -20,3 +20,6 @@ htmlcov/
 .vscode/
 .idea/
 .DS_Store
+
+try/
+plans/

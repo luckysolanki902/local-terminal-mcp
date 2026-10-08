@@ -109,13 +109,30 @@ def run_command(
     return header + _truncate(body, policy.max_output_bytes)
 
 
-def read_file(policy: Policy, path: str) -> str:
-    """Return the contents of a file inside the policy root."""
+def read_file(policy: Policy, path: str, offset: int = 0, limit: int = 0) -> str:
+    """Return the contents of a file inside the policy root.
+
+    ``offset`` (1-based line) and ``limit`` (line count, 0 = to end) read a
+    window of a long file instead of the whole thing — so a large file costs a
+    page, not the file, and the end of a file past the byte cap is still
+    reachable. When a window is used the result is prefixed with the line range.
+    """
     target = policy.resolve_path(path)
     if not target.is_file():
         raise PolicyError(f"{path!r} is not a file")
     data = target.read_text(encoding="utf-8", errors="replace")
-    return _truncate(data, policy.max_output_bytes)
+    if offset <= 0 and limit <= 0:
+        return _truncate(data, policy.max_output_bytes)
+
+    lines = data.splitlines(keepends=True)
+    total = len(lines)
+    start = max(0, offset - 1) if offset > 0 else 0
+    if total and start >= total:
+        return f"[file has {total} lines; offset {offset} is past the end]"
+    end = total if limit <= 0 else min(total, start + limit)
+    window = "".join(lines[start:end])
+    header = f"[lines {start + 1}-{end} of {total}]\n"
+    return header + _truncate(window, policy.max_output_bytes)
 
 
 def write_file(policy: Policy, path: str, content: str) -> str:
@@ -215,6 +232,56 @@ def read_image_payload(policy: Policy, path: str, max_bytes: int) -> tuple[bytes
             return buf.getvalue(), "jpeg"
     # Smallest attempt, even if still marginally over.
     return buf.getvalue(), "jpeg"
+
+
+def _image_dimensions(target: Path, served: bytes, downscaled: bool) -> str:
+    try:
+        import io
+
+        from PIL import Image as PILImage
+    except ImportError:
+        return "dimensions: unknown (install the 'images' extra / pillow)"
+    try:
+        with PILImage.open(target) as im:
+            ow, oh = im.size
+    except (OSError, ValueError):
+        return "dimensions: unknown"
+    if not downscaled:
+        return f"dimensions: {ow}x{oh}"
+    try:
+        with PILImage.open(io.BytesIO(served)) as im:
+            sw, sh = im.size
+        return f"dimensions: {sw}x{sh} (original {ow}x{oh}, downscaled)"
+    except (OSError, ValueError):
+        return f"dimensions: original {ow}x{oh} (downscaled)"
+
+
+def describe_image(policy: Policy, path: str, served: bytes, served_fmt: str) -> str:
+    """Build a text companion for a returned image.
+
+    read_image hands the model an image block, but a client can drop the image
+    part of a tool result; the text keeps the turn useful (path, size, format,
+    dimensions) and tells the model when what it sees was downscaled.
+    """
+    target = policy.resolve_path(path)
+    try:
+        rel = str(target.relative_to(policy.root))
+    except ValueError:
+        rel = str(target)
+    disk = target.stat().st_size
+    suffix = target.suffix.lower().lstrip(".")
+    downscaled = len(served) != disk
+    ret = f"returned: {len(served)} bytes as {served_fmt}"
+    if downscaled:
+        ret += "; downscaled to fit the return budget (the file on disk is unchanged)"
+    return "\n".join(
+        [
+            f"image: {rel}",
+            f"bytes on disk: {disk} ({suffix})",
+            ret,
+            _image_dimensions(target, served, downscaled),
+        ]
+    )
 
 
 def resolve_image(policy: Policy, path: str) -> Path:

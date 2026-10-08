@@ -326,7 +326,7 @@ flags win over environment variables.
 | `--image-timeout` | `LTMCP_IMAGE_TIMEOUT` | `300` | Image generation timeout (seconds) |
 | `--inbox` | `LTMCP_INBOX` | — | Staging folder (ideally a repo subdir like `incoming`) to import files FROM; enables the import tools |
 | `--inbox-ttl-days` | `LTMCP_INBOX_TTL_DAYS` | `0` | Auto-delete inbox files older than N days (`0` = never); use only with a dedicated staging folder |
-| `--allow-write` | `LTMCP_ALLOW_WRITE` | `false` | Enable `write_file`, `write_file_base64`, `generate_image` |
+| `--allow-write` | `LTMCP_ALLOW_WRITE` | `false` | Enable `apply_patch`, `write_file`, `write_file_base64`, `move_file`, `copy_file` |
 | `--max-output-bytes` | `LTMCP_MAX_OUTPUT_BYTES` | `100000` | Output truncation limit |
 | `--timeout` | `LTMCP_TIMEOUT` | `120` | Per-command timeout (seconds) |
 
@@ -335,12 +335,13 @@ flags win over environment variables.
 | Tool | Available when | Description |
 |---|---|---|
 | `run_command` | always | Run one allowlisted command (no shell). `cd` persists per session; takes an optional `session`. |
-| `read_file` | always | Read a text file inside the root. |
-| `read_image` | always | Read an image (png/jpg/gif/webp/bmp) and return it **as an image** the model can see (large images are auto-downscaled to fit). |
+| `read_file` | always | Read a text file inside the root. Pass `offset` (1-based line) and `limit` (line count) to page through a long file instead of reading it whole. |
+| `read_image` | always | Read an image (png/jpg/gif/webp/bmp) and return it **as an image** the model can see, plus a text line (path, size, dimensions) so the turn stays useful if the client drops the image. Large images are auto-downscaled to fit. |
 | `list_directory` | always | List a directory inside the root. |
 | `open_terminal` | always | Open a session with its own persistent working directory. |
 | `list_terminals` | always | List open sessions and their directories. |
 | `close_terminal` | always | Close a session. |
+| `apply_patch` | `--allow-write` | Apply a V4A patch (create/update/rename/delete across multiple files) **atomically**, anchored by context rather than line numbers — the right tool for edits to existing files instead of rewriting them. |
 | `write_file` | `--allow-write` | Write a UTF-8 text file inside the root. |
 | `write_file_base64` | `--allow-write` | Write a **binary** file (e.g. a PNG) from base64 — for saving generated images and other assets. |
 | `move_file` | `--allow-write` | Move/rename a file or directory within the root. |
@@ -370,6 +371,40 @@ Note: ChatGPT caps each tool call at ~45s, so a slow generator can time out ther
 > *local* tool. ChatGPT's built-in "Create image" produces pictures that live
 > only in the browser and can't be handed to a connector — to save those, see
 > [Saving ChatGPT's own generated images](#saving-chatgpts-own-generated-images).
+
+### Editing files (`apply_patch`)
+
+For changes to existing files, prefer `apply_patch` over rewriting the whole
+file with `write_file`: the model reads a file, then sends a **V4A patch** that
+locates each change by surrounding context (not line numbers, which models
+miscount), so edits land reliably even in long, mature files. One call can
+create, update, rename, and delete several files, and it's **atomic** — if any
+hunk doesn't match, nothing is written and the result says which file and why,
+so the model can re-read and retry. Paths are confined to the root and binaries
+are refused (those stay with `write_file_base64`), exactly like every other
+write tool.
+
+```
+*** Begin Patch
+*** Update File: src/app.py
+@@ def handler():
+     request = parse(raw)
+-    return request
++    validate(request)
++    return request
+*** Add File: src/validate.py
++def validate(req):
++    ...
+*** Delete File: src/old.py
+*** End Patch
+```
+
+Rename by putting `*** Move to: <new/path>` directly under an `*** Update File:`
+header. The V4A matcher is vendored from the
+[OpenAI Agents SDK](https://github.com/openai/openai-agents-python) (MIT; see
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)) — the same format GPT-class
+models are trained to emit — while all path resolution and write-gating stay in
+this project's policy layer.
 
 ### Sessions (persistent working directory)
 

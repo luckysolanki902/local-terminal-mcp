@@ -52,6 +52,8 @@ asyncio_mode = "auto"
 [tool.ruff]
 line-length = 88
 target-version = "py310"
+# Vendored third-party source, kept byte-for-byte; not ours to reformat.
+extend-exclude = ["src/local_terminal_mcp/apply_diff.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "S"]

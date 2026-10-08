@@ -34,6 +34,30 @@ async def test_write_server_exposes_write_tool(repo: Path) -> None:
     assert "write_file" in names
 
 
+async def test_apply_patch_gated_on_write(repo: Path) -> None:
+    ro = build_server(ServerConfig(policy=Policy(root=repo, allow_write=False)))
+    assert "apply_patch" not in {t.name for t in await ro.list_tools()}
+    rw = build_server(ServerConfig(policy=Policy(root=repo, allow_write=True)))
+    assert "apply_patch" in {t.name for t in await rw.list_tools()}
+
+
+async def test_read_image_returns_image_and_text(repo: Path) -> None:
+    import base64
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+        "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    )
+    (repo / "a.png").write_bytes(png)
+    mcp = build_server(ServerConfig(policy=Policy(root=repo)))
+    result = await mcp.call_tool("read_image", {"path": "a.png"})
+    kinds = [block.type for block in result.content]
+    assert "image" in kinds
+    assert "text" in kinds
+    text = next(b.text for b in result.content if b.type == "text")
+    assert "image: a.png" in text
+
+
 def _auth_app(token: str) -> Starlette:
     app = Starlette(
         routes=[

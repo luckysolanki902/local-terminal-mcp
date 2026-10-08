@@ -22,6 +22,8 @@ from .approvals import (
     TTYApprover,
 )
 from .config import ServerConfig
+from .patch import PatchSyntaxError
+from .patch import apply_patch as apply_patch_impl
 from .policy import Policy, PolicyError
 from .sessions import SessionManager
 
@@ -46,19 +48,33 @@ def build_approver(config: ServerConfig) -> Approver:
 def build_server(config: ServerConfig) -> MCPServer:
     """Construct a configured :class:`MCPServer` with tools registered."""
     policy = config.policy
-    instructions = None
+    parts = [
+        "This server exposes one sandboxed local repo. Paths are confined to the "
+        "project root, and commands run without a shell: one program per "
+        "run_command — no pipes, redirects, chaining, or substitution. Search the "
+        "tree with rg through run_command, and read long files in windows with "
+        "read_file's offset/limit instead of whole-file reads. read_image returns "
+        "an image you can actually see (plus a text line of its path and size)."
+    ]
+    if policy.allow_write:
+        parts.append(
+            "To change existing files, prefer apply_patch (an atomic V4A patch "
+            "anchored by surrounding context) over rewriting a whole file with "
+            "write_file. Read a file before patching so your context lines match; "
+            "if a hunk fails to apply, re-read and rebuild it from fresh context."
+        )
     if config.inbox_dir and policy.allow_write:
-        instructions = (
+        parts.append(
             "For NEW art (sprites, icons, illustrations, textures): generate it "
             "with your own native image-generation tool, not by hand-writing or "
-            "deriving SVG/pixel data in code. A rendered image is auto-saved "
-            "into this project's import inbox; call list_inbox to see it, then "
-            "import_recent_images or import_file to bring it into the repo. "
-            "Only fall back to writing image data yourself if image generation "
-            "is unavailable."
+            "deriving SVG/pixel data in code. A rendered image is auto-saved into "
+            "this project's import inbox; call list_inbox to see it, then "
+            "import_recent_images or import_file to bring it into the repo."
         )
     mcp = MCPServer(
-        "local-terminal-mcp", version=__version__, instructions=instructions
+        "local-terminal-mcp",
+        version=__version__,
+        instructions="\n\n".join(parts),
     )
 
     store = build_store(config)
@@ -154,10 +170,17 @@ def build_server(config: ServerConfig) -> MCPServer:
             else f"no such session {session!r}"
         )
 
-    @mcp.tool(description="Read a UTF-8 text file located inside the project root.")
-    def read_file(path: str) -> str:
+    @mcp.tool(
+        description=(
+            "Read a UTF-8 text file inside the project root. For a long file, "
+            "pass offset (1-based start line) and limit (number of lines) to read "
+            "a window instead of the whole file; the result is prefixed with the "
+            "line range, so you can tell there is more and page through it."
+        )
+    )
+    def read_file(path: str, offset: int = 0, limit: int = 0) -> str:
         try:
-            return executor.read_file(policy, path)
+            return executor.read_file(policy, path, offset, limit)
         except PolicyError as exc:
             return f"refused: {exc}"
 
@@ -186,8 +209,10 @@ def build_server(config: ServerConfig) -> MCPServer:
         except PolicyError as exc:
             return f"refused: {exc}"
         # Large images are returned downscaled so the model can still see them;
-        # the file on disk is unchanged.
-        return Image(data=data, format=fmt)
+        # the file on disk is unchanged. The text part keeps the turn useful if
+        # the client drops the image block.
+        text = executor.describe_image(policy, path, data, fmt)
+        return [Image(data=data, format=fmt), text]
 
     if policy.allow_write:
 
@@ -214,6 +239,41 @@ def build_server(config: ServerConfig) -> MCPServer:
         def write_file_base64(path: str, data_base64: str) -> str:
             try:
                 return executor.write_file_base64(policy, path, data_base64)
+            except PolicyError as exc:
+                return f"refused: {exc}"
+
+        @mcp.tool(
+            description=(
+                "Apply a V4A patch that creates, updates, renames, and/or deletes "
+                "one or more text files in the project root, atomically (every "
+                "file changes or none do). Prefer this over rewriting a whole file "
+                "with write_file when editing existing files.\n\n"
+                "Read the file first, then anchor each change with ~3 unchanged "
+                "context lines so it locates by content, not line numbers. "
+                "Format:\n"
+                "*** Begin Patch\n"
+                "*** Update File: relative/path.py\n"
+                "@@ optional enclosing-scope anchor\n"
+                " unchanged context line\n"
+                "-removed line\n"
+                "+added line\n"
+                "*** Add File: relative/new.py\n"
+                "+first line of the new file\n"
+                "*** Delete File: relative/old.py\n"
+                "*** End Patch\n\n"
+                "Rename by putting '*** Move to: relative/new/path.py' directly "
+                "under an Update File header. Paths are relative to the root; "
+                "absolute or '..' paths are refused. Text files only (use "
+                "write_file_base64 for binary assets). If a hunk does not match, "
+                "re-read the file and rebuild the hunk from fresh context."
+            )
+        )
+        def apply_patch(input: str) -> str:
+            try:
+                return apply_patch_impl(policy, input)
+            except PatchSyntaxError as exc:
+                where = f" at line {exc.line}" if exc.line else ""
+                return f"refused: patch syntax error{where}: {exc}"
             except PolicyError as exc:
                 return f"refused: {exc}"
 
