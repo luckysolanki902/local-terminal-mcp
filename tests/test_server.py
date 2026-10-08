@@ -41,6 +41,40 @@ async def test_apply_patch_gated_on_write(repo: Path) -> None:
     assert "apply_patch" in {t.name for t in await rw.list_tools()}
 
 
+async def test_list_images_tool_always_present(repo: Path) -> None:
+    mcp = build_server(ServerConfig(policy=Policy(root=repo)))
+    assert "list_images" in {t.name for t in await mcp.list_tools()}
+
+
+async def test_image_url_tool_gated_on_http_host(repo: Path) -> None:
+    # stdio / no allowed_hosts: no shareable-link tool.
+    stdio = build_server(ServerConfig(policy=Policy(root=repo)))
+    assert "image_url" not in {t.name for t in await stdio.list_tools()}
+    # http with a known public host: the tool appears and builds a link.
+    http = build_server(
+        ServerConfig(
+            policy=Policy(root=repo),
+            transport="http",
+            auth_mode="path",
+            mcp_path="/mcp/" + "s" * 32,
+            allowed_hosts=["photos.example.com"],
+        )
+    )
+    assert "image_url" in {t.name for t in await http.list_tools()}
+    import base64
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+        "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    )
+    (repo / "a.png").write_bytes(png)
+    result = await http.call_tool("image_url", {"path": "a.png"})
+    text = next(b.text for b in result.content if b.type == "text")
+    assert text == (
+        "https://photos.example.com/mcp/" + "s" * 32 + "/download?path=a.png"
+    )
+
+
 async def test_read_image_returns_image_and_text(repo: Path) -> None:
     import base64
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import quote
 
 from mcp.server.mcpserver import Image, MCPServer
 
@@ -192,6 +193,49 @@ def build_server(config: ServerConfig) -> MCPServer:
             return executor.list_directory(policy, path)
         except PolicyError as exc:
             return f"refused: {exc}"
+
+    @mcp.tool(
+        description=(
+            "List image files (and subfolders) in a directory inside the root, "
+            "with sizes — image-filtered, unlike list_directory. Use it to find "
+            "images to view with read_image or to share with image_url."
+        )
+    )
+    def list_images(path: str = ".") -> str:
+        try:
+            listing = executor.list_images(policy, path)
+        except PolicyError as exc:
+            return f"refused: {exc}"
+        lines = [f"{d}/" for d in listing["dirs"]]
+        lines += [f"{img['path']}\t{img['bytes']}B" for img in listing["images"]]
+        return "\n".join(lines) if lines else "(no images or subfolders here)"
+
+    # A shareable image link only makes sense when the server is reachable at a
+    # known public host (http transport with an allowed_hosts entry). Build the
+    # base once; the tool is registered only when it can produce a real URL.
+    public_base = None
+    if config.transport == "http" and config.allowed_hosts:
+        public_base = f"https://{config.allowed_hosts[0]}{config.mcp_path}"
+    if public_base is not None:
+
+        @mcp.tool(
+            description=(
+                "Return a shareable https link to a repo image that opens on any "
+                "device over the tunnel — so you can hand the user a link without "
+                "anyone navigating a gallery. Pass the repo-relative image path; "
+                "set download=true for a save link instead of an inline view. The "
+                "link carries the connector's secret path, so share it only with "
+                "the user."
+            )
+        )
+        def image_url(path: str, download: bool = False) -> str:
+            try:
+                target = executor.resolve_download(policy, path)
+            except PolicyError as exc:
+                return f"refused: {exc}"
+            rel = str(target.relative_to(policy.root))
+            url = f"{public_base}/download?path={quote(rel)}"
+            return url + "&dl=1" if download else url
 
     @mcp.tool(
         description=(
@@ -414,7 +458,6 @@ def run(config: ServerConfig) -> None:
     # HTTP transport: serve the Streamable-HTTP ASGI app with a health route
     # and the configured authentication, then serve with uvicorn.
     import html
-    from urllib.parse import quote
 
     import uvicorn
     from starlette.responses import (

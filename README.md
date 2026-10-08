@@ -338,6 +338,8 @@ flags win over environment variables.
 | `read_file` | always | Read a text file inside the root. Pass `offset` (1-based line) and `limit` (line count) to page through a long file instead of reading it whole. |
 | `read_image` | always | Read an image (png/jpg/gif/webp/bmp) and return it **as an image** the model can see, plus a text line (path, size, dimensions) so the turn stays useful if the client drops the image. Large images are auto-downscaled to fit. |
 | `list_directory` | always | List a directory inside the root. |
+| `list_images` | always | List image files (and subfolders) in a directory, image-filtered, with sizes — for finding images to view or share. |
+| `image_url` | http + `--allowed-hosts` | Return a shareable https link to a repo image that opens on any device over the tunnel — so the model can hand *you* a link with no gallery navigation. |
 | `open_terminal` | always | Open a session with its own persistent working directory. |
 | `list_terminals` | always | List open sessions and their directories. |
 | `close_terminal` | always | Close a session. |
