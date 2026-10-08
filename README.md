@@ -372,6 +372,26 @@ Note: ChatGPT caps each tool call at ~45s, so a slow generator can time out ther
 > only in the browser and can't be handed to a connector — to save those, see
 > [Saving ChatGPT's own generated images](#saving-chatgpts-own-generated-images).
 
+### Browse & download repo images from any device (HTTP mode)
+
+When you run over a tunnel, three secret-gated `GET` routes under your MCP path
+turn the server into a tiny cross-device image store — the same Mac, tunnel,
+and path containment, no second service:
+
+| Route | Does |
+|---|---|
+| `…/<secret>/gallery[?path=<dir>]` | A minimal browsable gallery (open it on your phone). |
+| `…/<secret>/images[?path=<dir>]` | JSON listing of a folder's subfolders + images. |
+| `…/<secret>/download?path=<rel>[&dl=1]` | Fetch one image inline, or `&dl=1` to save it. |
+
+They're gated by the same unguessable path segment as `/upload`, and every
+`path` is confined to the root (a `..` escape returns `403`); only image files
+are listed or served. Pair them with the existing `POST …/<secret>/upload`
+(raw bytes — from the browser extension, `curl`, or an iOS Shortcut) to push
+*and* pull images across devices. Read-only, so they work with or without
+`--allow-write`. (As with everything here, it's reachable only while the Mac is
+awake and the server + tunnel are up.)
+
 ### Editing files (`apply_patch`)
 
 For changes to existing files, prefer `apply_patch` over rewriting the whole

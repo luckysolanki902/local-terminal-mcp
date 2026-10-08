@@ -483,6 +483,48 @@ def import_recent_images(
     return f"{verb} {len(results)} image(s):\n" + "\n".join(results)
 
 
+def list_images(policy: Policy, rel_dir: str = ".") -> dict:
+    """List subdirectories and image files in a directory inside the root.
+
+    Backs the HTTP browse/download routes: returns root-relative paths so a
+    caller on another device can navigate folders and fetch images. Image files
+    only; other file types are omitted.
+    """
+    base = policy.resolve_path(rel_dir)
+    if not base.is_dir():
+        raise PolicyError(f"{rel_dir!r} is not a directory")
+    dirs: list[str] = []
+    images: list[dict] = []
+    for p in sorted(base.iterdir(), key=lambda x: x.name.lower()):
+        if p.is_dir():
+            dirs.append(str(p.relative_to(policy.root)))
+        elif p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS:
+            st = p.stat()
+            images.append(
+                {
+                    "name": p.name,
+                    "path": str(p.relative_to(policy.root)),
+                    "bytes": st.st_size,
+                    "modified": int(st.st_mtime),
+                }
+            )
+    here = "." if base == policy.root else str(base.relative_to(policy.root))
+    return {"dir": here, "dirs": dirs, "images": images}
+
+
+def resolve_download(policy: Policy, path: str) -> Path:
+    """Resolve an image file inside the root for download (no size cap)."""
+    target = policy.resolve_path(path)
+    if not target.is_file():
+        raise PolicyError(f"{path!r} is not a file")
+    if target.suffix.lower() not in IMAGE_EXTENSIONS:
+        raise PolicyError(
+            f"{path!r} is not a supported image "
+            f"({', '.join(sorted(IMAGE_EXTENSIONS))})"
+        )
+    return target
+
+
 def list_directory(policy: Policy, path: str = ".") -> str:
     """List the entries of a directory inside the policy root."""
     target = policy.resolve_path(path)

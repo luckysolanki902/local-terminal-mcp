@@ -131,6 +131,56 @@ def test_describe_image_downscaled_notes_it(tmp_path: Path) -> None:
     assert "original 2000x2000" in text
 
 
+# -- browse / download (cross-device image store) --------------------------
+
+
+def test_list_images_lists_images_and_dirs(tmp_path: Path) -> None:
+    (tmp_path / "a.png").write_bytes(PNG_1X1)
+    (tmp_path / "notes.txt").write_text("skip me")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "b.jpg").write_bytes(PNG_1X1)
+    policy = Policy(root=tmp_path)
+    listing = executor.list_images(policy, ".")
+    assert listing["dir"] == "."
+    assert "sub" in listing["dirs"]
+    names = {img["name"] for img in listing["images"]}
+    assert names == {"a.png"}  # notes.txt excluded, sub/ not recursed
+    assert listing["images"][0]["path"] == "a.png"
+
+
+def test_list_images_subdir(tmp_path: Path) -> None:
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "b.jpg").write_bytes(PNG_1X1)
+    policy = Policy(root=tmp_path)
+    listing = executor.list_images(policy, "sub")
+    assert {img["path"] for img in listing["images"]} == {"sub/b.jpg"}
+
+
+def test_list_images_outside_root_refused(tmp_path: Path) -> None:
+    policy = Policy(root=tmp_path)
+    with pytest.raises(PolicyError):
+        executor.list_images(policy, "../..")
+
+
+def test_resolve_download_ok(tmp_path: Path) -> None:
+    (tmp_path / "a.png").write_bytes(PNG_1X1)
+    policy = Policy(root=tmp_path)
+    assert executor.resolve_download(policy, "a.png").name == "a.png"
+
+
+def test_resolve_download_rejects_non_image(tmp_path: Path) -> None:
+    (tmp_path / "a.txt").write_text("nope")
+    policy = Policy(root=tmp_path)
+    with pytest.raises(PolicyError, match="not a supported image"):
+        executor.resolve_download(policy, "a.txt")
+
+
+def test_resolve_download_contained(tmp_path: Path) -> None:
+    policy = Policy(root=tmp_path)
+    with pytest.raises(PolicyError):
+        executor.resolve_download(policy, "/etc/hosts")
+
+
 # -- generator argv building -----------------------------------------------
 
 

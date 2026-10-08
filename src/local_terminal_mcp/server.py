@@ -413,14 +413,30 @@ def run(config: ServerConfig) -> None:
 
     # HTTP transport: serve the Streamable-HTTP ASGI app with a health route
     # and the configured authentication, then serve with uvicorn.
+    import html
+    from urllib.parse import quote
+
     import uvicorn
-    from starlette.responses import JSONResponse, Response
+    from starlette.responses import (
+        FileResponse,
+        HTMLResponse,
+        JSONResponse,
+        Response,
+    )
 
     from .auth import HEALTH_PATH, BearerAuthMiddleware, health_endpoint
 
     policy = config.policy
     upload_max = 25_000_000
     allowed_origins = {"https://chatgpt.com", "https://chat.openai.com"}
+    _image_media = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".bmp": "image/bmp",
+    }
 
     def _cors(origin: str) -> dict[str, str]:
         if origin in allowed_origins:
@@ -459,12 +475,93 @@ def run(config: ServerConfig) -> None:
             {"ok": True, "path": str(target), "bytes": len(body)}, headers=cors
         )
 
+    async def images_handler(request):
+        """List images (and subfolders) in a directory inside the root, as JSON."""
+        rel = request.query_params.get("path", ".")
+        try:
+            listing = executor.list_images(policy, rel)
+        except PolicyError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=403)
+        return JSONResponse(listing)
+
+    async def download_handler(request):
+        """Stream an image file from inside the root. ``?dl=1`` forces a save."""
+        path = request.query_params.get("path", "")
+        if not path:
+            return JSONResponse({"error": "missing 'path'"}, status_code=400)
+        try:
+            target = executor.resolve_download(policy, path)
+        except PolicyError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=403)
+        media = _image_media.get(target.suffix.lower(), "application/octet-stream")
+        disposition = "attachment" if request.query_params.get("dl") else "inline"
+        return FileResponse(
+            target,
+            media_type=media,
+            filename=target.name,
+            content_disposition_type=disposition,
+        )
+
+    def _dl_url(rel_path: str, *, download: bool = False) -> str:
+        url = f"{config.mcp_path}/download?path={quote(rel_path)}"
+        return url + "&dl=1" if download else url
+
+    async def gallery_handler(request):
+        """A minimal browsable image gallery for other devices (same-origin)."""
+        rel = request.query_params.get("path", ".")
+        try:
+            listing = executor.list_images(policy, rel)
+        except PolicyError as exc:
+            return HTMLResponse(
+                f"<p>{html.escape(str(exc))}</p>", status_code=403
+            )
+        folders = "".join(
+            f'<li><a href="{config.mcp_path}/gallery?path={quote(d)}">'
+            f"\N{FILE FOLDER} {html.escape(d)}</a></li>"
+            for d in listing["dirs"]
+        )
+        tiles = "".join(
+            f'<figure><a href="{_dl_url(img["path"])}" target="_blank">'
+            f'<img loading="lazy" src="{_dl_url(img["path"])}" '
+            f'alt="{html.escape(img["name"])}"></a>'
+            f'<figcaption>{html.escape(img["name"])} '
+            f'<a href="{_dl_url(img["path"], download=True)}">\N{DOWNWARDS ARROW}</a>'
+            f"</figcaption></figure>"
+            for img in listing["images"]
+        )
+        here = html.escape(listing["dir"])
+        page = (
+            "<!doctype html><meta charset=utf-8>"
+            "<meta name=viewport content='width=device-width,initial-scale=1'>"
+            f"<title>images: {here}</title><style>"
+            "body{font-family:system-ui,sans-serif;margin:0;padding:16px;"
+            "background:#111;color:#eee}h1{font-size:15px;font-weight:600;"
+            "word-break:break-all}ul{list-style:none;padding:0}"
+            "li a{color:#6cf;text-decoration:none;line-height:1.9}"
+            ".grid{display:grid;gap:12px;grid-template-columns:"
+            "repeat(auto-fill,minmax(150px,1fr))}figure{margin:0}"
+            "img{width:100%;height:150px;object-fit:cover;border-radius:8px;"
+            "background:#222;display:block}figcaption{font-size:12px;"
+            "color:#aaa;margin-top:4px;word-break:break-all}"
+            "figcaption a{color:#6cf;text-decoration:none}</style>"
+            f"<h1>images: {here}</h1><ul>{folders}</ul>"
+            f"<div class=grid>{tiles}</div>"
+        )
+        return HTMLResponse(page)
+
     # Register an unauthenticated health route on the MCP app.
     mcp.custom_route(HEALTH_PATH, methods=["GET"])(health_endpoint)
-    # Upload endpoint lives under the secret path (so the secret gates it).
+    # These all live under the secret path, so the secret gates them. Upload
+    # takes raw bytes (browser extension / curl / Shortcut); the read routes let
+    # any device browse and download repo images over the tunnel.
     mcp.custom_route(config.mcp_path + "/upload", methods=["POST", "OPTIONS"])(
         upload_handler
     )
+    mcp.custom_route(config.mcp_path + "/images", methods=["GET"])(images_handler)
+    mcp.custom_route(config.mcp_path + "/download", methods=["GET"])(
+        download_handler
+    )
+    mcp.custom_route(config.mcp_path + "/gallery", methods=["GET"])(gallery_handler)
 
     app = mcp.streamable_http_app(
         host=config.host,
