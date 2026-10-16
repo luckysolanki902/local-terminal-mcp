@@ -23,3 +23,8 @@ htmlcov/
 
 try/
 plans/
+
+# Approval queue + dynamic allowlist (runtime state)
+approvals/
+allowlist.json
+logs/
