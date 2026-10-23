@@ -19,7 +19,7 @@
         {
           baseUrl: "http://localhost:3003",
           mcpPath: "",
-          folder: "incoming",
+          folder: "gpt-workspace/gpt-images",
           autoSave: false,
         },
         resolve
@@ -65,7 +65,7 @@
   async function saveSrc(src, name, cfg) {
     const blob = await fetch(src).then((r) => r.blob());
     const ext = (blob.type.split("/")[1] || "png").replace("jpeg", "jpg");
-    const path = `${cfg.folder || "incoming"}/${name}.${ext}`;
+    const path = `${cfg.folder || "gpt-workspace/gpt-images"}/${name}.${ext}`;
     const url = `${cfg.baseUrl}${cfg.mcpPath}/upload?path=${encodeURIComponent(
       path
     )}`;

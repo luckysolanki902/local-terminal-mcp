@@ -1,7 +1,7 @@
 const DEFAULTS = {
   baseUrl: "http://localhost:3003",
   mcpPath: "",
-  folder: "gpt-images",
+  folder: "gpt-workspace/gpt-images",
   autoSave: false,
 };
 const TEXT_FIELDS = ["baseUrl", "mcpPath", "folder"];
