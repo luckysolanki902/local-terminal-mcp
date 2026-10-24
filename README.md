@@ -1,14 +1,38 @@
 # local-terminal-mcp
 
-A small, security-first [MCP](https://modelcontextprotocol.io) server that lets
+**Give ChatGPT (or any MCP client) a safe, sandboxed terminal on your own machine.**
+
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Protocol: MCP](https://img.shields.io/badge/protocol-MCP-6E56CF)](https://modelcontextprotocol.io)
+[![Tests](https://img.shields.io/badge/tests-182%20passing-2ea043)](#development)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+A small, **security-first** [MCP](https://modelcontextprotocol.io) server that lets
 an AI assistant — **ChatGPT**, **Claude Desktop**, **Claude Code**, or any other
-MCP client — run a set of **allowlisted** commands and read files from a local
-directory on your machine.
+MCP client — run **allowlisted** commands, read and edit files, run long jobs in
+the background, and see images, all confined to a single local directory.
 
 The motivating use case: point ChatGPT (or Claude) at a local codebase so it can
 run `git`, `rg`, `cat`, etc. and analyse the repo — without copying files around
 by hand, and, for ChatGPT, using your flat-rate subscription instead of metered
 API/agent tokens.
+
+### Highlights
+
+- 🔒 **Safe by default** — allowlist-gated, **no shell** (no pipes, chaining, or
+  substitution), every path confined to the root, writes off until you opt in.
+- ⏱️ **Background jobs** — kick off a slow build, install, or extraction and get
+  a job id back instantly; poll, stream output, run many in parallel, and cancel
+  — so a long task never dies to the connector's request timeout. *(new in 0.2)*
+- ✍️ **Reliable edits** — atomic, context-anchored `apply_patch` (V4A) for edits
+  across many files, not brittle whole-file rewrites.
+- 🖼️ **Images, both ways** — the model can *see* repo images (`read_image`), and a
+  one-time [browser extension](browser-extension/) auto-saves every image ChatGPT
+  generates straight into your repo, hands-free.
+- 📲 **Cross-device image store** — secret-gated gallery/upload/download routes
+  turn the same tunnel into a tiny push-and-pull image bridge for your phone.
+- 🧑‍⚖️ **Claude Code–style approvals** — optionally be *asked* (deny / once /
+  always) before any new program runs; the decision is always made locally.
 
 > ⚠️ **This runs commands on your computer.** It is built to be safe by default
 > (read-only, allowlisted, no shell, path-contained, auth-required over the
@@ -31,6 +55,7 @@ API/agent tokens.
 - [Connect to ChatGPT (over the internet)](#connect-to-chatgpt-over-the-internet) · [exact step-by-step guide](docs/CHATGPT_SETUP.md)
 - [Configuration reference](#configuration-reference)
 - [Tools exposed](#tools-exposed)
+- [Background jobs](#background-jobs)
 - [Development](#development)
 - [FAQ](#faq)
 
@@ -51,6 +76,10 @@ turned off and expose only read access.
   Let ChatGPT run `git`, `rg`, `cat`, `find`, etc. to read, search and reason
   about a local repo — billed to your flat ChatGPT subscription instead of
   metered agent/API usage.
+- **Run slow tasks in the background.** Installs, builds, test suites and asset
+  pipelines take longer than a connector will wait on a single call. `start_job`
+  hands back a job id instantly and the work keeps running; the model follows it
+  with `get_job` and can run several at once. See [Background jobs](#background-jobs).
 - **Run local generators from ChatGPT — images, sprites, assets — unmetered.**
   The server runs *any program you allowlist*. Allowlist your own generation
   CLI or script and ChatGPT can trigger it locally, as many times as you like,
@@ -124,7 +153,12 @@ The server never trusts the model's judgement. A deterministic policy layer
 5. **Fail closed on exposure.** The server refuses to start in HTTP mode without
    an auth token of at least 16 characters.
 6. **Bounded output and time.** Output is truncated to a byte limit and every
-   command has a timeout.
+   command has a timeout — synchronous commands and background jobs alike (jobs
+   default to 10 minutes, capped at 12 hours), after which the process group is
+   killed.
+7. **Background jobs obey the same gate.** `start_job` authorizes the command
+   through the allowlist/approval layer *before* spawning, so running detached
+   grants no new power — just a longer leash and non-blocking execution.
 
 **Layers you add around it:**
 
@@ -334,7 +368,12 @@ flags win over environment variables.
 
 | Tool | Available when | Description |
 |---|---|---|
-| `run_command` | always | Run one allowlisted command (no shell). `cd` persists per session; takes an optional `session`. |
+| `run_command` | always | Run one allowlisted command (no shell), synchronously. `cd` persists per session; takes an optional `session`. |
+| `start_job` | always | Run a command as a **background job** and return its id immediately — for anything slow. Default timeout 10 min, configurable up to 12 h. |
+| `list_jobs` | always | List all background jobs (newest first) with status, exit code, elapsed time, and command. |
+| `get_job` | always | Show a job's current status and captured output (combined stdout+stderr). |
+| `wait_job` | always | Block up to N seconds for a job to finish, then return its status and output. |
+| `cancel_job` | always | Stop a running job — its whole process group gets SIGTERM, then SIGKILL. |
 | `read_file` | always | Read a text file inside the root. Pass `offset` (1-based line) and `limit` (line count) to page through a long file instead of reading it whole. |
 | `read_image` | always | Read an image (png/jpg/gif/webp/bmp) and return it **as an image** the model can see, plus a text line (path, size, dimensions) so the turn stays useful if the client drops the image. Large images are auto-downscaled to fit. |
 | `list_directory` | always | List a directory inside the root. |
@@ -497,6 +536,48 @@ still land only inside the root.
 > screenshot/resume, etc. Large images are auto-downscaled to fit the transport
 > limit (Pillow required — `pip install -e ".[images]"`); the file on disk is
 > unchanged.
+
+## Background jobs
+
+`run_command` is **synchronous**, so it's bounded by the MCP client's own request
+timeout — ChatGPT drops a tool call after a minute or two. That's fine for `git`,
+`rg`, `cat`, but it kills anything slow: a `pip install`, a build, a test suite, a
+long asset extraction. Background jobs solve that.
+
+`start_job` launches a command **detached** in its own process group and returns a
+job id **immediately**. The command keeps running on your machine while the model
+polls, reads, waits on, or cancels it — and jobs run **in parallel**.
+
+```text
+start_job("pip install -r requirements.txt")   →  started job 9f2a… (timeout 600s)
+get_job("9f2a…")   →  status=running   … (live stdout+stderr, most recent output)
+get_job("9f2a…")   →  status=succeeded  exit=0  elapsed=2m14s
+```
+
+- **Same safety as `run_command`.** The command is allowlist/approval-authorized
+  *before* it spawns — a background job can't bypass the policy.
+- **Timeouts, your way.** Default **10 minutes**, set per job via `timeout_seconds`
+  up to **12 hours**. On expiry the whole process group is killed and the job is
+  marked `timed_out`.
+- **Robust output.** Combined stdout+stderr is captured and tail-bounded (last
+  ~2 MB), so a chatty build can't exhaust memory and the end — where errors land —
+  is always there.
+- **Clean cancellation.** `cancel_job` sends `SIGTERM` to the group, then
+  `SIGKILL` if it doesn't exit promptly; the job becomes `cancelled`.
+- **Parallel & self-managing.** Any number run at once; finished jobs are reaped
+  automatically so the list stays small.
+
+| Tool | Purpose |
+|---|---|
+| `start_job(command, cwd="", timeout_seconds=600)` | Launch detached, return a job id now |
+| `list_jobs()` | All jobs — status, exit code, elapsed, command |
+| `get_job(job_id)` | Status + captured output |
+| `wait_job(job_id, wait_seconds=30)` | Block briefly for completion, then report |
+| `cancel_job(job_id)` | Stop a running job (SIGTERM → SIGKILL) |
+
+> In ChatGPT: *"Run the asset extraction as a background job and check on it."*
+> It'll `start_job`, keep working, and `get_job` for the result — no more "the
+> request timed out; run these commands yourself."
 
 ## Approvals & the dynamic allowlist (Claude Code–style)
 
