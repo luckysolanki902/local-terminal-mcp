@@ -75,6 +75,11 @@ class Policy:
 
     root: Path
     allowed_commands: frozenset[str] = DEFAULT_ALLOWED_COMMANDS
+    # When True, any program may run: the allowlist is bypassed entirely. The
+    # structural rules (no shell, one program per call, path containment) still
+    # apply. This is the "unrestricted terminal" mode — use only on a machine
+    # and behind a credential you trust.
+    allow_all_commands: bool = False
     allow_write: bool = False
     max_output_bytes: int = 100_000
     timeout_seconds: int = 120
@@ -137,6 +142,8 @@ class Policy:
 
     def is_allowed(self, argv: list[str]) -> bool:
         """Whether ``argv`` matches the static (configured) allowlist patterns."""
+        if self.allow_all_commands:
+            return True
         return matches_any(self.patterns, argv)
 
     def check_path_args(self, argv: list[str]) -> None:

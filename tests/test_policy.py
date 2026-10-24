@@ -166,3 +166,17 @@ def test_default_allowlist_is_read_only_ish() -> None:
     # Guard against accidentally shipping a dangerous default.
     for dangerous in ("rm", "sudo", "sh", "bash", "curl", "wget", "chmod"):
         assert dangerous not in DEFAULT_ALLOWED_COMMANDS
+
+
+def test_allow_all_commands_bypasses_allowlist(tmp_path: Path) -> None:
+    # In unrestricted mode any program is allowed, but structural rules remain.
+    policy = Policy(root=tmp_path, allowed_commands=frozenset({"ls"}),
+                    allow_all_commands=True)
+    assert policy.parse_command("python3 build.py") == ["python3", "build.py"]
+    assert policy.parse_command("rm file.txt") == ["rm", "file.txt"]
+    # No shell / chaining is still rejected.
+    with pytest.raises(PolicyError):
+        policy.parse_command("ls && rm -rf x")
+    # Absolute-path args are still contained to the root by default.
+    with pytest.raises(PolicyError):
+        policy.parse_command("cat /etc/passwd")

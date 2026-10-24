@@ -351,6 +351,7 @@ flags win over environment variables.
 | `--mcp-path` | `LTMCP_MCP_PATH` | `/mcp` | Path the MCP endpoint is served at; for `path` auth, end it with a long random segment |
 | `--allowed-hosts` | `LTMCP_ALLOWED_HOSTS` | any | Comma-separated `Host` header allowlist (e.g. your tunnel hostname) |
 | `--allow-commands` | `LTMCP_ALLOW_COMMANDS` | read-only set | Comma-separated allowlist patterns (e.g. `git *,rg *`) |
+| `--allow-all-commands` | `LTMCP_ALLOW_ALL_COMMANDS` | `false` | **Run any program** (bypass the allowlist). No-shell, one-program-per-call and path containment still apply. Trust the machine and the credential before enabling. |
 | `--no-contain-path-args` | `LTMCP_CONTAIN_PATH_ARGS=false` | on | Stop confining command path-args to the root |
 | `--approval` | `LTMCP_APPROVAL_MODE` | `none` | Ask before running non-allowlisted commands: `none`/`tty`/`file` |
 | `--approvals-dir` | `LTMCP_APPROVALS_DIR` | — | Directory to coordinate approvals in `file` mode |
@@ -632,10 +633,13 @@ The security-critical logic lives in `policy.py` and is covered by
 
 ## FAQ
 
-**Can it run any command?** No — only programs on the allowlist, one at a time,
-with no shell. Expand the static allowlist with `--allow-commands`, or turn on
-`--approval` to be asked (once / always) when a new program is requested, Claude
-Code–style — see [Approvals](#approvals--the-dynamic-allowlist-claude-codestyle).
+**Can it run any command?** By default no — only programs on the allowlist, one
+at a time, with no shell. Expand the static allowlist with `--allow-commands`,
+turn on `--approval` to be asked (once / always) when a new program is requested
+(Claude Code–style — see [Approvals](#approvals--the-dynamic-allowlist-claude-codestyle)),
+or, for a machine and credential you fully trust, lift the allowlist entirely
+with `--allow-all-commands` (the no-shell and path-containment rules still
+apply).
 
 **How is the HTTP endpoint protected?** With a credential, never obscurity of
 the tunnel hostname alone. Use `bearer` auth (header token) for clients that

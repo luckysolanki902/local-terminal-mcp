@@ -61,6 +61,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Comma-separated allowlist of programs (overrides the default).",
     )
     parser.add_argument(
+        "--allow-all-commands",
+        action="store_true",
+        help=(
+            "Run ANY program (bypass the allowlist entirely). The no-shell, "
+            "one-program-per-call and path-containment rules still apply."
+        ),
+    )
+    parser.add_argument(
         "--allow-write",
         action="store_true",
         help="Enable the write_file tool (default: disabled).",
@@ -155,6 +163,7 @@ def _apply_overrides(args: argparse.Namespace):
     config.policy = Policy(
         root=new_root,
         allowed_commands=allowed,
+        allow_all_commands=policy.allow_all_commands or args.allow_all_commands,
         allow_write=policy.allow_write or args.allow_write,
         max_output_bytes=args.max_output_bytes or policy.max_output_bytes,
         timeout_seconds=args.timeout or policy.timeout_seconds,

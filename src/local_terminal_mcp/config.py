@@ -148,6 +148,7 @@ def load_config() -> ServerConfig:
     policy = Policy(
         root=Path(_env("ROOT", os.getcwd())),
         allowed_commands=_parse_commands(_env("ALLOW_COMMANDS")),
+        allow_all_commands=_env_bool("ALLOW_ALL_COMMANDS", False),
         allow_write=_env_bool("ALLOW_WRITE", False),
         max_output_bytes=_env_int("MAX_OUTPUT_BYTES", 100_000),
         timeout_seconds=_env_int("TIMEOUT", 120),
