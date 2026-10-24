@@ -23,6 +23,7 @@ from .approvals import (
     TTYApprover,
 )
 from .config import ServerConfig
+from .jobs import DEFAULT_JOB_TIMEOUT, Job, JobManager
 from .patch import PatchSyntaxError
 from .patch import apply_patch as apply_patch_impl
 from .policy import Policy, PolicyError
@@ -56,6 +57,14 @@ def build_server(config: ServerConfig) -> MCPServer:
         "tree with rg through run_command, and read long files in windows with "
         "read_file's offset/limit instead of whole-file reads. read_image returns "
         "an image you can actually see (plus a text line of its path and size)."
+        "\n\n"
+        "run_command is synchronous and bounded by this connector's request "
+        "timeout, so for anything slow — installs, builds, test suites, asset "
+        "extraction — use start_job instead: it returns a job id at once and the "
+        "command keeps running on the machine. Follow it with get_job, see all "
+        "jobs with list_jobs, block briefly with wait_job, and stop it with "
+        "cancel_job. Jobs run in parallel; each has its own timeout (default 10 "
+        "minutes, up to 12 hours)."
     ]
     if policy.allow_write:
         parts.append(
@@ -81,6 +90,7 @@ def build_server(config: ServerConfig) -> MCPServer:
     store = build_store(config)
     approver = build_approver(config) if config.approval_mode != "none" else None
     sessions = SessionManager(policy.root)
+    jobs_mgr = JobManager()
 
     allowed = ", ".join(sorted(str(p) for p in policy.allowed_commands))
 
@@ -170,6 +180,133 @@ def build_server(config: ServerConfig) -> MCPServer:
             if sessions.close(session)
             else f"no such session {session!r}"
         )
+
+    # -- background jobs ----------------------------------------------------
+    # run_command is synchronous and bounded by the connector's own request
+    # timeout. Anything slow (installs, builds, extractions) should run as a
+    # background job: it returns a job id immediately and keeps running on this
+    # machine while you poll, list, read, or cancel it. Jobs run in parallel.
+
+    def _fmt_dur(seconds: float) -> str:
+        s = int(seconds)
+        if s < 60:
+            return f"{s}s"
+        if s < 3600:
+            return f"{s // 60}m{s % 60:02d}s"
+        return f"{s // 3600}h{(s % 3600) // 60:02d}m"
+
+    def _job_line(job: Job) -> str:
+        rc = "" if job.returncode is None else f" exit={job.returncode}"
+        cmd = job.command if len(job.command) <= 60 else job.command[:57] + "..."
+        return (
+            f"{job.id}  {job.status}{rc}  {_fmt_dur(job.elapsed())}  "
+            f"cwd={_rel(Path(job.cwd))}  $ {cmd}"
+        )
+
+    def _job_detail(job: Job) -> str:
+        text, shown, total = job.output_tail(policy.max_output_bytes)
+        head = [
+            f"job {job.id}  status={job.status}",
+            f"  command: {job.command}",
+            f"  cwd: {_rel(Path(job.cwd))}  pid: {job.pid}  "
+            f"timeout: {job.timeout}s",
+            f"  elapsed: {_fmt_dur(job.elapsed())}"
+            + (
+                f"  exit: {job.returncode}"
+                if job.returncode is not None
+                else " (running)"
+            ),
+        ]
+        note = ""
+        if total > shown:
+            note = f"  [showing last {shown} of {total} bytes]"
+        body = text if text else "(no output yet)"
+        return "\n".join(head) + f"\n--- output{note} ---\n" + body
+
+    @mcp.tool(
+        description=(
+            "Start a long-running command as a BACKGROUND job and return its id "
+            "immediately, so a slow task (pip install, build, asset extraction, "
+            "tests) never hits the connector's request timeout. Same rules as "
+            "run_command: exactly one program, no pipes/chaining/redirects/"
+            "substitution. The job keeps running on this machine; poll it with "
+            "get_job, read every job with list_jobs, wait briefly with wait_job, "
+            "and stop it with cancel_job. Jobs run in parallel. timeout_seconds "
+            "defaults to 600 (10 min) and may be set up to 43200 (12 hours); the "
+            "job is killed if it exceeds it. cwd is relative to the project root."
+        )
+    )
+    def start_job(
+        command: str, cwd: str = "", timeout_seconds: int = DEFAULT_JOB_TIMEOUT
+    ) -> str:
+        try:
+            job = jobs_mgr.start(
+                policy, command, cwd, timeout_seconds, store, approver
+            )
+        except PolicyError as exc:
+            return f"refused: {exc}"
+        return (
+            f"started job {job.id} (pid {job.pid}, timeout {job.timeout}s). "
+            f"Check it with get_job('{job.id}')."
+        )
+
+    @mcp.tool(
+        description=(
+            "List all background jobs (newest first) with status, exit code, "
+            "elapsed time, working directory and command. Use get_job for the "
+            "full output of one."
+        )
+    )
+    def list_jobs() -> str:
+        jobs = jobs_mgr.list()
+        if not jobs:
+            return "(no background jobs)"
+        return "\n".join(_job_line(j) for j in jobs)
+
+    @mcp.tool(
+        description=(
+            "Show a background job's current status and its captured output "
+            "(combined stdout+stderr, most recent bytes). Call it repeatedly to "
+            "follow progress; status is running until it becomes succeeded, "
+            "failed, timed_out, cancelled, or error."
+        )
+    )
+    def get_job(job_id: str) -> str:
+        job = jobs_mgr.get(job_id)
+        if job is None:
+            return f"no such job {job_id!r} (use list_jobs)"
+        return _job_detail(job)
+
+    @mcp.tool(
+        description=(
+            "Wait up to wait_seconds for a background job to finish, then return "
+            "its status and output — a convenient way to block briefly on a job "
+            "you expect to complete soon instead of polling get_job in a loop. "
+            "Returns while the job is still running if the wait elapses first."
+        )
+    )
+    def wait_job(job_id: str, wait_seconds: int = 30) -> str:
+        job = jobs_mgr.wait(job_id, max(0, min(int(wait_seconds), 300)))
+        if job is None:
+            return f"no such job {job_id!r} (use list_jobs)"
+        return _job_detail(job)
+
+    @mcp.tool(
+        description=(
+            "Cancel a running background job: its whole process group is sent "
+            "SIGTERM, then SIGKILL if it does not exit promptly. Finished jobs "
+            "are returned unchanged."
+        )
+    )
+    def cancel_job(job_id: str) -> str:
+        job = jobs_mgr.cancel(job_id)
+        if job is None:
+            return f"no such job {job_id!r} (use list_jobs)"
+        if job.status == "cancelled":
+            return f"cancelled job {job_id}"
+        if not job.is_running:
+            return f"job {job_id} already finished (status={job.status})"
+        return f"stopping job {job_id} (status={job.status})"
 
     @mcp.tool(
         description=(
